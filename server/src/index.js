@@ -6,6 +6,8 @@ import { fileURLToPath } from "url";
 import adminRoutes from "./routes/admin.js";
 import standingsRoutes from "./routes/standings.js";
 import { connectDb } from "./config/db.js";
+import { Admin } from "./models/Admin.js";
+import bcrypt from "bcryptjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,7 +30,17 @@ app.use("/api", standingsRoutes);
 const port = process.env.PORT || 5000;
 
 connectDb(process.env.MONGODB_URI)
-  .then(() => {
+  .then(async () => {
+    const adminUsername = "admin";
+    const adminPassword = "admin";
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
+
+    await Admin.findOneAndUpdate(
+      { username: adminUsername },
+      { username: adminUsername, passwordHash },
+      { upsert: true, new: true }
+    );
+
     app.listen(port, "0.0.0.0", () => {
       console.log(`Server running on port ${port}`);
     });

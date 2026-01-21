@@ -119,16 +119,21 @@ const Standings = () => {
                             <div key={day.date} className="day-block">
                               <div className="day-header">
                                 <span>{day.date}</span>
-                                <span
-                                  className={
-                                    day.delta >= 0
-                                      ? "delta-positive"
-                                      : "delta-negative"
-                                  }
-                                >
-                                  {day.delta >= 0 ? "+" : ""}
-                                  {day.delta}
-                                </span>
+                                <div className="delta-block">
+                                  <span className="delta-meta">
+                                    {day.fromRating} → {day.toRating}
+                                  </span>
+                                  <span
+                                    className={
+                                      day.delta >= 0
+                                        ? "delta-positive"
+                                        : "delta-negative"
+                                    }
+                                  >
+                                    {day.delta >= 0 ? "+" : ""}
+                                    {day.delta}
+                                  </span>
+                                </div>
                               </div>
                               {day.problems.length === 0 ? (
                                 <p className="day-empty">No problems solved</p>

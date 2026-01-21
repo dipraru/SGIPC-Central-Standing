@@ -63,13 +63,18 @@ export const calculateEloScore = ({ maxRating, solvedProblems }) => {
 export const buildRecentStats = ({ maxRating, solvedProblems }) => {
   const safeMax = Number.isFinite(maxRating) ? maxRating : 0;
   const nowSeconds = Math.floor(Date.now() / 1000);
+  const startOfDaySeconds = (seconds) => Math.floor(seconds / 86400) * 86400;
   const recentDays = Array.from({ length: FIVE_DAYS }, (_, index) => {
     const daySeconds = nowSeconds - (FIVE_DAYS - 1 - index) * 86400;
     const dateKey = new Date(daySeconds * 1000).toISOString().slice(0, 10);
     return {
       date: dateKey,
+      dayStartSeconds: startOfDaySeconds(daySeconds),
       problems: [],
       delta: 0,
+      rating: 1000,
+      fromRating: 1000,
+      toRating: 1000,
     };
   });
 
@@ -99,22 +104,57 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
     });
   }
 
-  let current = 1000;
-  for (const day of recentDays) {
-    const startRating = current;
-    day.problems.sort((a, b) => a.solvedAtSeconds - b.solvedAtSeconds);
-    for (const problem of day.problems) {
+  const computeRatingForDay = (dayStartSeconds) => {
+    const windowStart = dayStartSeconds - THIRTY_DAYS * 86400;
+    const windowEnd = dayStartSeconds + 86400;
+    const scoped = solvedProblems
+      .filter(
+        (problem) =>
+          problem.rating &&
+          problem.solvedAtSeconds &&
+          problem.solvedAtSeconds >= windowStart &&
+          problem.solvedAtSeconds < windowEnd
+      )
+      .sort((a, b) => a.solvedAtSeconds - b.solvedAtSeconds);
+
+    let current = 1000;
+    for (const problem of scoped) {
+      const daysAgo = daysBetween(problem.solvedAtSeconds, dayStartSeconds);
+      const timeWeight = getTimeWeight(daysAgo);
+      if (timeWeight <= 0) {
+        continue;
+      }
       const delta = getEloDelta({
         current,
         opponent: problem.rating,
         maxRating: safeMax,
-        timeWeight: 1,
+        timeWeight,
       });
       current += delta;
     }
-    day.delta = Math.round(current - startRating);
-    day.problems = day.problems.map(({ solvedAtSeconds, ...rest }) => rest);
+    return Math.round(current);
+  };
+
+  for (const day of recentDays) {
+    day.rating = computeRatingForDay(day.dayStartSeconds);
+    day.problems = day.problems
+      .sort((a, b) => a.solvedAtSeconds - b.solvedAtSeconds)
+      .map(({ solvedAtSeconds, ...rest }) => rest);
   }
 
-  return recentDays.reverse();
+  for (let i = 0; i < recentDays.length; i += 1) {
+    const today = recentDays[i];
+    const fromRating =
+      i === 0
+        ? computeRatingForDay(today.dayStartSeconds - 86400)
+        : recentDays[i - 1].rating;
+    const toRating = today.rating;
+    today.fromRating = fromRating;
+    today.toRating = toRating;
+    today.delta = toRating - fromRating;
+  }
+
+  return recentDays
+    .reverse()
+    .map(({ dayStartSeconds, rating, ...rest }) => rest);
 };

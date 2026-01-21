@@ -1,6 +1,8 @@
 import express from "express";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
 import { Handle } from "../models/Handle.js";
+import { Admin } from "../models/Admin.js";
 
 const router = express.Router();
 
@@ -20,12 +22,19 @@ const authRequired = (req, res, next) => {
   }
 };
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
   const { username, password } = req.body;
-  const adminUser = process.env.ADMIN_USERNAME;
-  const adminPass = process.env.ADMIN_PASSWORD;
+  if (!username || !password) {
+    return res.status(400).json({ message: "Missing credentials" });
+  }
 
-  if (username !== adminUser || password !== adminPass) {
+  const admin = await Admin.findOne({ username });
+  if (!admin) {
+    return res.status(401).json({ message: "Invalid credentials" });
+  }
+
+  const match = await bcrypt.compare(password, admin.passwordHash);
+  if (!match) {
     return res.status(401).json({ message: "Invalid credentials" });
   }
 

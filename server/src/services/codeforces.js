@@ -37,13 +37,20 @@ export const getSolvedProblems = async (handle) => {
     }
     const problem = submission.problem;
     const key = `${problem.contestId}-${problem.index}`;
+    const solvedAtSeconds = submission.creationTimeSeconds;
     if (!solved.has(key)) {
       solved.set(key, {
         name: problem.name,
         rating: problem.rating ?? null,
         contestId: problem.contestId,
         index: problem.index,
+        solvedAtSeconds,
       });
+    } else {
+      const existing = solved.get(key);
+      if (solvedAtSeconds && solvedAtSeconds < existing.solvedAtSeconds) {
+        solved.set(key, { ...existing, solvedAtSeconds });
+      }
     }
   }
 

@@ -1,19 +1,26 @@
 import express from "express";
 import { Handle } from "../models/Handle.js";
 import { getSolvedProblems, getUserInfo } from "../services/codeforces.js";
-import { calculateEloScore } from "../services/elo.js";
+import { buildRecentStats, calculateEloScore } from "../services/elo.js";
 
 const router = express.Router();
 
 router.get("/standings", async (req, res) => {
   const handles = await Handle.find().sort({ createdAt: -1 });
+  if (handles.length === 0) {
+    return res.json([]);
+  }
 
-  const results = await Promise.all(
-    handles.map(async (entry) => {
-      try {
+  try {
+    const results = await Promise.all(
+      handles.map(async (entry) => {
         const userInfo = await getUserInfo(entry.handle);
         const solvedProblems = await getSolvedProblems(entry.handle);
         const rating = calculateEloScore({
+          maxRating: userInfo.maxRating,
+          solvedProblems,
+        });
+        const recentStats = buildRecentStats({
           maxRating: userInfo.maxRating,
           solvedProblems,
         });
@@ -24,22 +31,20 @@ router.get("/standings", async (req, res) => {
           maxRating: userInfo.maxRating,
           solvedCount: solvedProblems.length,
           standingRating: rating,
+          recentStats,
         };
-      } catch (error) {
-        return {
-          id: entry._id,
-          handle: entry.handle,
-          maxRating: 0,
-          solvedCount: 0,
-          standingRating: 0,
-          error: error.message,
-        };
-      }
-    })
-  );
+      })
+    );
 
-  const sorted = results.sort((a, b) => b.standingRating - a.standingRating);
-  return res.json(sorted);
+    const sorted = results.sort(
+      (a, b) => b.standingRating - a.standingRating
+    );
+    return res.json(sorted);
+  } catch (error) {
+    return res.status(502).json({
+      message: "Unable to fetch all standings. Please retry.",
+    });
+  }
 });
 
 export default router;

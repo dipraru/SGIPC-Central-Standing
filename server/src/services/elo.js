@@ -24,6 +24,13 @@ const getRatingMultiplier = (problemRating, maxRating) => {
   return 0.3 + (1 - diff) * 0.4;
 };
 
+const getEloDelta = ({ current, opponent, maxRating, timeWeight }) => {
+  const expected = 1 / (1 + Math.pow(10, (opponent - current) / 400));
+  const ratingMultiplier = getRatingMultiplier(opponent, maxRating);
+  const k = opponent >= maxRating ? 32 : 12;
+  return k * (1 - expected) * ratingMultiplier * timeWeight;
+};
+
 export const calculateEloScore = ({ maxRating, solvedProblems }) => {
   let current = 1000;
   const safeMax = Number.isFinite(maxRating) ? maxRating : 0;
@@ -41,12 +48,73 @@ export const calculateEloScore = ({ maxRating, solvedProblems }) => {
     }
 
     const opponent = problem.rating;
-    const expected = 1 / (1 + Math.pow(10, (opponent - current) / 400));
-    const ratingMultiplier = getRatingMultiplier(opponent, safeMax);
-    const k = opponent >= safeMax ? 32 : 12;
-    const delta = k * (1 - expected) * ratingMultiplier * timeWeight;
+    const delta = getEloDelta({
+      current,
+      opponent,
+      maxRating: safeMax,
+      timeWeight,
+    });
     current += delta;
   }
 
   return Math.round(current);
+};
+
+export const buildRecentStats = ({ maxRating, solvedProblems }) => {
+  const safeMax = Number.isFinite(maxRating) ? maxRating : 0;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const recentDays = Array.from({ length: FIVE_DAYS }, (_, index) => {
+    const daySeconds = nowSeconds - (FIVE_DAYS - 1 - index) * 86400;
+    const dateKey = new Date(daySeconds * 1000).toISOString().slice(0, 10);
+    return {
+      date: dateKey,
+      problems: [],
+      delta: 0,
+    };
+  });
+
+  const dayMap = new Map(recentDays.map((day) => [day.date, day]));
+
+  for (const problem of solvedProblems) {
+    if (!problem.rating || !problem.solvedAtSeconds) {
+      continue;
+    }
+    const daysAgo = daysBetween(problem.solvedAtSeconds, nowSeconds);
+    if (daysAgo >= FIVE_DAYS || daysAgo < 0) {
+      continue;
+    }
+    const dateKey = new Date(problem.solvedAtSeconds * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const dayBucket = dayMap.get(dateKey);
+    if (!dayBucket) {
+      continue;
+    }
+    dayBucket.problems.push({
+      name: problem.name,
+      rating: problem.rating,
+      contestId: problem.contestId,
+      index: problem.index,
+      solvedAtSeconds: problem.solvedAtSeconds,
+    });
+  }
+
+  let current = 1000;
+  for (const day of recentDays) {
+    const startRating = current;
+    day.problems.sort((a, b) => a.solvedAtSeconds - b.solvedAtSeconds);
+    for (const problem of day.problems) {
+      const delta = getEloDelta({
+        current,
+        opponent: problem.rating,
+        maxRating: safeMax,
+        timeWeight: 1,
+      });
+      current += delta;
+    }
+    day.delta = Math.round(current - startRating);
+    day.problems = day.problems.map(({ solvedAtSeconds, ...rest }) => rest);
+  }
+
+  return recentDays.reverse();
 };

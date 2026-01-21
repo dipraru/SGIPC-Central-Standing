@@ -5,22 +5,47 @@ const Standings = () => {
   const [standings, setStandings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [openHandleId, setOpenHandleId] = useState(null);
 
-  const loadStandings = async () => {
+  const fetchStandingsData = async () => {
     try {
-      setLoading(true);
-      setError("");
       const data = await getStandings();
       setStandings(data);
+      setLastUpdated(new Date());
+      setError("");
+      return true;
     } catch (err) {
-      setError("Unable to load standings right now.");
-    } finally {
-      setLoading(false);
+      return false;
     }
   };
 
   useEffect(() => {
-    loadStandings();
+    let mounted = true;
+
+    const initialLoad = async () => {
+      setLoading(true);
+      let success = false;
+      while (mounted && !success) {
+        success = await fetchStandingsData();
+        if (!success) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
+      }
+      if (mounted) setLoading(false);
+    };
+
+    initialLoad().then(() => {
+      // Start silent polling only after initial load succeeds
+      const interval = setInterval(() => {
+        if (mounted) fetchStandingsData();
+      }, 20000);
+      return () => clearInterval(interval);
+    });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   return (
@@ -35,9 +60,11 @@ const Standings = () => {
       </div>
 
       <div className="nav">
-        <button className="secondary" onClick={loadStandings}>
-          Refresh Standings
-        </button>
+        <div>
+          {lastUpdated && (
+            <span className="updated">Updated {lastUpdated.toLocaleTimeString()}</span>
+          )}
+        </div>
         <a className="link" href="/admin">
           Admin Login
         </a>
@@ -62,13 +89,65 @@ const Standings = () => {
             </thead>
             <tbody>
               {standings.map((row, index) => (
-                <tr key={row.id}>
-                  <td>{index + 1}</td>
-                  <td>{row.handle}</td>
-                  <td>{row.maxRating}</td>
-                  <td>{row.solvedCount}</td>
-                  <td>{row.standingRating}</td>
-                </tr>
+                <React.Fragment key={row.id}>
+                  <tr>
+                    <td>{index + 1}</td>
+                    <td>
+                      <div className="handle-cell">
+                        <span>{row.handle}</span>
+                        <button
+                          className="secondary dropdown-button"
+                          onClick={() =>
+                            setOpenHandleId(
+                              openHandleId === row.id ? null : row.id
+                            )
+                          }
+                        >
+                          {openHandleId === row.id ? "Hide" : "Details"}
+                        </button>
+                      </div>
+                    </td>
+                    <td>{row.maxRating}</td>
+                    <td>{row.solvedCount}</td>
+                    <td>{row.standingRating}</td>
+                  </tr>
+                  {openHandleId === row.id && (
+                    <tr>
+                      <td colSpan={5}>
+                        <div className="dropdown-panel">
+                          {row.recentStats?.map((day) => (
+                            <div key={day.date} className="day-block">
+                              <div className="day-header">
+                                <span>{day.date}</span>
+                                <span
+                                  className={
+                                    day.delta >= 0
+                                      ? "delta-positive"
+                                      : "delta-negative"
+                                  }
+                                >
+                                  {day.delta >= 0 ? "+" : ""}
+                                  {day.delta}
+                                </span>
+                              </div>
+                              {day.problems.length === 0 ? (
+                                <p className="day-empty">No problems solved</p>
+                              ) : (
+                                <ul className="problem-list">
+                                  {day.problems.map((problem, idx) => (
+                                    <li key={`${problem.contestId}-${problem.index}-${idx}`}>
+                                      {problem.name} ({problem.rating})
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>

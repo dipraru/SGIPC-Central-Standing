@@ -56,6 +56,18 @@ body {
   border-bottom: 1px solid #e5e7eb;
 }
 
+.handle-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dropdown-button {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
 .badge {
   display: inline-block;
   padding: 4px 10px;
@@ -111,6 +123,12 @@ input {
   margin: 24px 0 10px;
 }
 
+.updated {
+  margin-left: 12px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
 .link {
   color: #4f46e5;
   text-decoration: none;
@@ -123,5 +141,48 @@ input {
   padding: 10px 12px;
   border-radius: 10px;
   margin-top: 14px;
+  font-size: 14px;
+}
+
+.dropdown-panel {
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.day-block {
+  background: white;
+  border-radius: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+}
+
+.day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.delta-positive {
+  color: #16a34a;
+}
+
+.delta-negative {
+  color: #dc2626;
+}
+
+.problem-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #374151;
+}
+
+.day-empty {
+  margin: 0;
+  color: #6b7280;
   font-size: 14px;
 }

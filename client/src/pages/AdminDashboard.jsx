@@ -48,6 +48,8 @@ const AdminDashboard = () => {
   const [editingContestEnabled, setEditingContestEnabled] = useState(true);
   const [isAddingHandle, setIsAddingHandle] = useState(false);
   const [handleAddSuccess, setHandleAddSuccess] = useState(false);
+  const [deletingHandleId, setDeletingHandleId] = useState(null);
+  const [handleDeleteSuccessId, setHandleDeleteSuccessId] = useState(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -129,11 +131,18 @@ const AdminDashboard = () => {
   };
 
   const handleDelete = async (id) => {
+    if (deletingHandleId) return;
     try {
+      setDeletingHandleId(id);
+      setHandleDeleteSuccessId(null);
       await deleteHandle(id);
-      loadHandles();
+      await loadHandles();
+      setHandleDeleteSuccessId(id);
+      setTimeout(() => setHandleDeleteSuccessId(null), 1500);
     } catch (err) {
       setError("Unable to delete handle");
+    } finally {
+      setDeletingHandleId(null);
     }
   };
 
@@ -601,9 +610,16 @@ const AdminDashboard = () => {
                           <button
                             className="danger"
                             onClick={() => handleDelete(row._id)}
+                            disabled={deletingHandleId === row._id}
                           >
-                            Delete
+                            {deletingHandleId === row._id ? "Deleting..." : "Delete"}
                           </button>
+                          {deletingHandleId === row._id && (
+                            <div className="loading-spinner" style={{ width: 16, height: 16, borderWidth: 2 }}></div>
+                          )}
+                          {handleDeleteSuccessId === row._id && (
+                            <span style={{ color: "var(--success)", fontWeight: 600 }}>✓ Done</span>
+                          )}
                         </>
                       )}
                     </div>

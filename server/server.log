@@ -1,0 +1,5 @@
+nohup: ignoring input
+Loading .env...
+.env file path: /home/dipra/SGIPCStanding/server/.env
+MONGODB_URI: LOADED
+Server running on port 5000

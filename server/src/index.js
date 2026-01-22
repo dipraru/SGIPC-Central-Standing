@@ -31,6 +31,15 @@ app.use("/api/admin", adminVjudgeRoutes);
 app.use("/api", standingsRoutes);
 app.use("/api", vjudgeRoutes);
 
+// Serve static files from React app
+const clientDistPath = path.resolve(__dirname, "../../client/dist");
+app.use(express.static(clientDistPath));
+
+// Catch-all route to serve React app
+app.get("*", (req, res) => {
+  res.sendFile(path.resolve(clientDistPath, "index.html"));
+});
+
 const port = process.env.PORT || 5000;
 
 connectDb(process.env.MONGODB_URI)

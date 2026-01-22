@@ -243,50 +243,63 @@ const AdminDashboard = () => {
   return (
     <div className="container">
       <div className="hero">
-        <span className="badge">Admin Dashboard</span>
-        <h1>Manage SGIPC Handles</h1>
-        <p>Add or remove Codeforces handles.</p>
-      </div>
-
-      <div className="nav">
-        <div className="form-row" style={{ maxWidth: 420 }}>
-          <input
-            type="text"
-            placeholder="Add new handle"
-            value={newHandle}
-            onChange={(event) => setNewHandle(event.target.value)}
-          />
-          <button className="primary" onClick={handleCreate}>
-            Add
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
+          <div>
+            <span className="badge">Admin Dashboard</span>
+            <h1>Manage SGIPC Platform</h1>
+            <p>Configure handles, teams, and contest settings</p>
+          </div>
+          <button className="secondary" onClick={logout} style={{ height: "fit-content" }}>
+            Logout
           </button>
         </div>
-        <button className="secondary" onClick={logout}>
-          Logout
-        </button>
       </div>
 
       <div className="card">
-        {loading && <p>Loading handles...</p>}
-        {!loading && error && <p className="notice">{error}</p>}
+        <h2 style={{ marginBottom: "8px" }}>Codeforces Handles</h2>
+        <p style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>Add or remove participant handles for individual standings</p>
+        
+        <div className="form-row" style={{ marginBottom: "24px" }}>
+          <input
+            type="text"
+            placeholder="Enter Codeforces handle"
+            value={newHandle}
+            onChange={(event) => setNewHandle(event.target.value)}
+            onKeyPress={(e) => e.key === "Enter" && handleCreate()}
+          />
+          <button className="primary" onClick={handleCreate}>
+            Add Handle
+          </button>
+        </div>
+
+        {loading && (
+          <div className="empty-state">
+            <div className="loading-spinner"></div>
+            <p>Loading handles...</p>
+          </div>
+        )}
+        {!loading && error && <div className="notice" style={{ marginBottom: "16px" }}>{error}</div>}
         {!loading && !error && handles.length === 0 && (
-          <p>No handles added yet.</p>
+          <div className="empty-state">
+            <p>No handles added yet. Add your first Codeforces handle to get started.</p>
+          </div>
         )}
         {!loading && !error && handles.length > 0 && (
           <table className="table">
             <thead>
               <tr>
                 <th>Handle</th>
-                <th>Actions</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {handles.map((row) => (
                 <tr key={row._id}>
-                  <td>{row.handle}</td>
+                  <td><strong>{row.handle}</strong></td>
                   <td>
-                    <div className="actions">
+                    <div className="actions" style={{ justifyContent: "flex-end" }}>
                       <button
-                        className="primary"
+                        className="danger"
                         onClick={() => handleDelete(row._id)}
                       >
                         Delete
@@ -300,52 +313,55 @@ const AdminDashboard = () => {
         )}
       </div>
 
-      <div className="card" style={{ marginTop: 24 }}>
-        <h2>VJudge Team Standings</h2>
-        <p className="day-empty">Configure teams, contests, and Elo mode.</p>
+      <div className="card" style={{ marginTop: "24px" }}>
+        <h2 style={{ marginBottom: "8px" }}>VJudge Team Standings</h2>
+        <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>Configure teams, contests, and Elo rating mode</p>
 
-        <div className="vjudge-grid" style={{ marginTop: 16 }}>
-          <div>
-            <label className="input-label">Team name</label>
-            <input
-              type="text"
-              placeholder="e.g., SGIPC Alpha"
-              value={teamName}
-              onChange={(event) => setTeamName(event.target.value)}
-            />
-            <p className="input-help">Primary display name for the team.</p>
+        <div style={{ padding: "16px", background: "var(--bg-secondary)", borderRadius: "8px", marginBottom: "24px" }}>
+          <h3 style={{ fontSize: "16px", marginBottom: "16px", color: "var(--text-primary)" }}>Add New Team</h3>
+          <div className="vjudge-grid">
+            <div>
+              <label className="input-label">Team Name</label>
+              <input
+                type="text"
+                placeholder="e.g., SGIPC Alpha"
+                value={teamName}
+                onChange={(event) => setTeamName(event.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleAddTeam()}
+              />
+              <p className="input-help">Primary display name for the team</p>
+            </div>
+            <div>
+              <label className="input-label">Team Aliases</label>
+              <input
+                type="text"
+                placeholder="Comma separated (team_id, alt_id)"
+                value={teamAliases}
+                onChange={(event) => setTeamAliases(event.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleAddTeam()}
+              />
+              <p className="input-help">
+                Alternate VJudge IDs for this team (best rank will be used)
+              </p>
+            </div>
           </div>
-          <div>
-            <label className="input-label">Team aliases</label>
-            <input
-              type="text"
-              placeholder="Comma separated aliases (team_id, alt_id)"
-              value={teamAliases}
-              onChange={(event) => setTeamAliases(event.target.value)}
-            />
-            <p className="input-help">
-              Add alternate VJudge IDs for the same team. Example: team_alpha, alpha_team
-            </p>
-          </div>
-        </div>
-        <div className="form-row" style={{ marginTop: 8 }}>
-          <button className="primary" onClick={handleAddTeam}>
+          <button className="primary" onClick={handleAddTeam} style={{ marginTop: "12px" }}>
             Add Team
           </button>
         </div>
-        <div className="hint-box">
-          Tip: If a team uses multiple IDs, list them as aliases so the best rank is used.
-        </div>
 
+        <h3 style={{ fontSize: "16px", marginBottom: "12px", marginTop: "24px", color: "var(--text-primary)" }}>Registered Teams</h3>
         {vjudgeTeams.length === 0 ? (
-          <p className="day-empty">No teams added yet.</p>
+          <div className="empty-state">
+            <p>No teams registered yet. Add your first team to get started.</p>
+          </div>
         ) : (
-          <table className="table" style={{ marginTop: 16 }}>
+          <table className="table">
             <thead>
               <tr>
-                <th>Team</th>
+                <th>Team Name</th>
                 <th>Aliases</th>
-                <th>Actions</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -357,9 +373,10 @@ const AdminDashboard = () => {
                         type="text"
                         value={editingTeamName}
                         onChange={(event) => setEditingTeamName(event.target.value)}
+                        style={{ width: "100%" }}
                       />
                     ) : (
-                      team.name
+                      <strong>{team.name}</strong>
                     )}
                   </td>
                   <td>
@@ -368,13 +385,16 @@ const AdminDashboard = () => {
                         type="text"
                         value={editingTeamAliases}
                         onChange={(event) => setEditingTeamAliases(event.target.value)}
+                        style={{ width: "100%" }}
                       />
                     ) : (
-                      team.aliases?.join(", ") || "-"
+                      <span style={{ color: "var(--text-secondary)" }}>
+                        {team.aliases?.join(", ") || "No aliases"}
+                      </span>
                     )}
                   </td>
                   <td>
-                    <div className="actions">
+                    <div className="actions" style={{ justifyContent: "flex-end" }}>
                       {editingTeamId === team._id ? (
                         <>
                           <button
@@ -396,7 +416,7 @@ const AdminDashboard = () => {
                             Edit
                           </button>
                           <button
-                            className="primary"
+                            className="danger"
                             onClick={() => handleDeleteTeam(team._id)}
                           >
                             Delete
@@ -411,45 +431,49 @@ const AdminDashboard = () => {
           </table>
         )}
 
-        <div className="vjudge-grid" style={{ marginTop: 20 }}>
-          <div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginTop: "32px" }}>
+          <div style={{ padding: "16px", background: "var(--bg-secondary)", borderRadius: "8px" }}>
+            <h3 style={{ fontSize: "16px", marginBottom: "16px", color: "var(--text-primary)" }}>Add New Contest</h3>
             <label className="input-label">Contest ID</label>
             <input
               type="text"
               placeholder="e.g., 123456"
               value={contestIdInput}
               onChange={(event) => setContestIdInput(event.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && handleAddContest()}
             />
-            <label className="input-label" style={{ marginTop: 12 }}>
-              Contest name
+            <label className="input-label" style={{ marginTop: "12px" }}>
+              Contest Name (Optional)
             </label>
             <input
               type="text"
-              placeholder="Contest title"
+              placeholder="Leave blank to auto-fetch"
               value={contestTitleInput}
               onChange={(event) => setContestTitleInput(event.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && handleAddContest()}
             />
             <p className="input-help">
-              Optional. Leave blank to fetch the official contest name.
+              If left blank, the contest name will be automatically fetched from VJudge
             </p>
-            <button className="primary" onClick={handleAddContest}>
+            <button className="primary" onClick={handleAddContest} style={{ marginTop: "12px" }}>
               Add Contest
             </button>
           </div>
-          <div>
-            <label className="input-label">Elo mode</label>
+          <div style={{ padding: "16px", background: "var(--bg-secondary)", borderRadius: "8px" }}>
+            <h3 style={{ fontSize: "16px", marginBottom: "16px", color: "var(--text-primary)" }}>Elo Rating Mode</h3>
             <div className="radio-group">
               <label className="radio-option">
                 <input
                   type="radio"
                   name="eloMode"
-                  value="zero-participation"
-                  checked={vjudgeConfig.eloMode === "zero-participation"}
+                  value="normal"
+                  checked={vjudgeConfig.eloMode === "normal"}
                   onChange={handleConfigChange}
                 />
-                <span>
-                  Participation required (missing teams count as 0 solve)
-                </span>
+                <div>
+                  <strong>Classic Elo</strong>
+                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "4px 0 0 0" }}>Standard rating system with gains and losses</p>
+                </div>
               </label>
               <label className="radio-option">
                 <input
@@ -459,32 +483,41 @@ const AdminDashboard = () => {
                   checked={vjudgeConfig.eloMode === "gain-only"}
                   onChange={handleConfigChange}
                 />
-                <span>Gain-only rating (no decreases)</span>
+                <div>
+                  <strong>Gain-Only</strong>
+                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "4px 0 0 0" }}>Rating only increases, never decreases</p>
+                </div>
               </label>
               <label className="radio-option">
                 <input
                   type="radio"
                   name="eloMode"
-                  value="normal"
-                  checked={vjudgeConfig.eloMode === "normal"}
+                  value="zero-participation"
+                  checked={vjudgeConfig.eloMode === "zero-participation"}
                   onChange={handleConfigChange}
                 />
-                <span>Classic Elo (default)</span>
+                <div>
+                  <strong>Mandatory Participation</strong>
+                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "4px 0 0 0" }}>Missing teams treated as 0 solves</p>
+                </div>
               </label>
             </div>
           </div>
         </div>
 
+        <h3 style={{ fontSize: "16px", marginBottom: "12px", marginTop: "32px", color: "var(--text-primary)" }}>Registered Contests</h3>
         {vjudgeContests.length === 0 ? (
-          <p className="day-empty">No contests added yet.</p>
+          <div className="empty-state">
+            <p>No contests registered yet. Add your first contest to get started.</p>
+          </div>
         ) : (
-          <table className="table" style={{ marginTop: 16 }}>
+          <table className="table">
             <thead>
               <tr>
                 <th>Contest ID</th>
                 <th>Contest Name</th>
-                <th>Enabled</th>
-                <th>Actions</th>
+                <th>Status</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -498,9 +531,12 @@ const AdminDashboard = () => {
                         onChange={(event) =>
                           setEditingContestValue(event.target.value)
                         }
+                        style={{ width: "100%" }}
                       />
                     ) : (
-                      contest.contestId
+                      <code style={{ fontSize: "14px", background: "var(--bg-secondary)", padding: "4px 8px", borderRadius: "4px" }}>
+                        {contest.contestId}
+                      </code>
                     )}
                   </td>
                   <td>
@@ -511,14 +547,19 @@ const AdminDashboard = () => {
                         onChange={(event) =>
                           setEditingContestTitle(event.target.value)
                         }
+                        style={{ width: "100%" }}
                       />
                     ) : (
-                      contest.title || "-"
+                      <strong>{contest.title || "Untitled"}</strong>
                     )}
                   </td>
-                  <td>{contest.enabled ? "Yes" : "No"}</td>
                   <td>
-                    <div className="actions">
+                    <span className={contest.enabled ? "badge" : "badge-secondary"}>
+                      {contest.enabled ? "Active" : "Disabled"}
+                    </span>
+                  </td>
+                  <td>
+                    <div className="actions" style={{ justifyContent: "flex-end" }}>
                       {editingContestId === contest._id ? (
                         <>
                           <button
@@ -543,13 +584,13 @@ const AdminDashboard = () => {
                             Edit
                           </button>
                           <button
-                            className="secondary"
+                            className={contest.enabled ? "secondary" : "primary"}
                             onClick={() => handleToggleContest(contest)}
                           >
                             {contest.enabled ? "Disable" : "Enable"}
                           </button>
                           <button
-                            className="primary"
+                            className="danger"
                             onClick={() => handleDeleteContest(contest._id)}
                           >
                             Delete

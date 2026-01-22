@@ -2,6 +2,11 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { Handle } from "../models/Handle.js";
+import { DailySolved } from "../models/DailySolved.js";
+import { HandleMeta } from "../models/HandleMeta.js";
+import { PendingProblem } from "../models/PendingProblem.js";
+import { RatingHistory } from "../models/RatingHistory.js";
+import { getUserInfo } from "../services/codeforces.js";
 import { Admin } from "../models/Admin.js";
 
 const router = express.Router();
@@ -55,8 +60,14 @@ router.post("/handles", authRequired, async (req, res) => {
   if (!handle) {
     return res.status(400).json({ message: "Handle is required" });
   }
+  const normalized = handle.trim();
+  try {
+    await getUserInfo(normalized);
+  } catch (error) {
+    return res.status(400).json({ message: "Handle does not exist" });
+  }
 
-  const created = await Handle.create({ handle });
+  const created = await Handle.create({ handle: normalized });
   return res.status(201).json(created);
 });
 
@@ -84,6 +95,12 @@ router.delete("/handles/:id", authRequired, async (req, res) => {
   if (!deleted) {
     return res.status(404).json({ message: "Handle not found" });
   }
+  await Promise.all([
+    DailySolved.deleteMany({ handle: deleted.handle }),
+    PendingProblem.deleteMany({ handle: deleted.handle }),
+    RatingHistory.deleteMany({ handle: deleted.handle }),
+    HandleMeta.deleteMany({ handle: deleted.handle }),
+  ]);
   return res.status(204).send();
 });
 

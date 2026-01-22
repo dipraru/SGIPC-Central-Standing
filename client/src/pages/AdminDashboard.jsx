@@ -3,14 +3,11 @@ import {
   createHandle,
   deleteHandle,
   getHandles,
-  updateHandle,
 } from "../api.js";
 
 const AdminDashboard = () => {
   const [handles, setHandles] = useState([]);
   const [newHandle, setNewHandle] = useState("");
-  const [editingId, setEditingId] = useState(null);
-  const [editingValue, setEditingValue] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -43,18 +40,8 @@ const AdminDashboard = () => {
       setNewHandle("");
       loadHandles();
     } catch (err) {
-      setError("Unable to add handle");
-    }
-  };
-
-  const handleUpdate = async (id) => {
-    try {
-      await updateHandle(id, { handle: editingValue.trim() });
-      setEditingId(null);
-      setEditingValue("");
-      loadHandles();
-    } catch (err) {
-      setError("Unable to update handle");
+      const message = err?.response?.data?.message || "Unable to add handle";
+      setError(message);
     }
   };
 
@@ -114,55 +101,15 @@ const AdminDashboard = () => {
             <tbody>
               {handles.map((row) => (
                 <tr key={row._id}>
-                  <td>
-                    {editingId === row._id ? (
-                      <input
-                        value={editingValue}
-                        onChange={(event) => setEditingValue(event.target.value)}
-                      />
-                    ) : (
-                      row.handle
-                    )}
-                  </td>
+                  <td>{row.handle}</td>
                   <td>
                     <div className="actions">
-                      {editingId === row._id ? (
-                        <>
-                          <button
-                            className="primary"
-                            onClick={() => handleUpdate(row._id)}
-                          >
-                            Save
-                          </button>
-                          <button
-                            className="secondary"
-                            onClick={() => {
-                              setEditingId(null);
-                              setEditingValue("");
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="secondary"
-                            onClick={() => {
-                              setEditingId(row._id);
-                              setEditingValue(row.handle);
-                            }}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="primary"
-                            onClick={() => handleDelete(row._id)}
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
+                      <button
+                        className="primary"
+                        onClick={() => handleDelete(row._id)}
+                      >
+                        Delete
+                      </button>
                     </div>
                   </td>
                 </tr>

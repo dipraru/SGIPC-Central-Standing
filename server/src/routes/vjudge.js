@@ -15,6 +15,7 @@ router.get("/vjudge/standings", async (req, res) => {
   const teams = await VjudgeTeam.find().lean();
   const config = await VjudgeConfig.findOne().lean();
   const eloMode = config?.eloMode || "normal";
+  const errors = [];
 
   if (!contests.length || !teams.length) {
     return res.json({
@@ -30,6 +31,7 @@ router.get("/vjudge/standings", async (req, res) => {
       try {
         const data = await fetchContestRank(contest.contestId);
         if (data.error) {
+          errors.push({ contestId: contest.contestId, message: data.error });
           return null;
         }
         if (data.title && data.title !== contest.title) {
@@ -53,6 +55,7 @@ router.get("/vjudge/standings", async (req, res) => {
     teams,
     standings,
     eloMode,
+    errors,
   });
 });
 

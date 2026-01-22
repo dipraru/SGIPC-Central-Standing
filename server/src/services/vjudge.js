@@ -275,7 +275,11 @@ const findBestGroupMatch = (teamGroup, ranklist, participants = {}) => {
 export const fetchContestRank = async (contestId) => {
   const url = `/contest/rank/single/${contestId}`;
   const { data } = await client.get(url, {
-    headers: { Accept: "application/json" },
+    params: { limit: 2000 },
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "Mozilla/5.0 (compatible; SGIPC-Standings/1.0)",
+    },
   });
   const ranklist = buildRanklist(data);
   if (!ranklist) {

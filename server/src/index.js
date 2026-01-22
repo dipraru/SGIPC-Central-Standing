@@ -10,6 +10,7 @@ import vjudgeRoutes from "./routes/vjudge.js";
 import { connectDb } from "./config/db.js";
 import { Admin } from "./models/Admin.js";
 import bcrypt from "bcryptjs";
+import { startScheduler } from "./services/scheduler.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +57,8 @@ connectDb(process.env.MONGODB_URI)
 
     app.listen(port, "0.0.0.0", () => {
       console.log(`Server running on port ${port}`);
+      // Start the scheduler for daily data refresh
+      startScheduler();
     });
   })
   .catch((error) => {

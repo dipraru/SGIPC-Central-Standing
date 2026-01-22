@@ -45,8 +45,8 @@ router.get("/standings", async (req, res) => {
           );
 
           const meta = await HandleMeta.findOne({ handle: entry.handle }).lean();
-          const needsRefresh =
-            forceRefresh || !meta || meta.lastUpdateDate !== todayKey || !historyComplete;
+          // Only refresh if explicitly requested via query param, not automatically
+          const needsRefresh = req.query.refresh === "1" && (!meta || meta.lastUpdateDate !== todayKey || !historyComplete);
 
           let maxRating = 0;
           let solvedProblems = [];
@@ -199,20 +199,27 @@ router.get("/standings", async (req, res) => {
           let resolvedMaxRating = maxRating;
 
           if (!metaLatest || solvedCount === 0) {
-            const userInfo = await getUserInfo(entry.handle);
-            const solvedAll = await getSolvedProblems(entry.handle);
-            solvedCount = solvedAll.length;
-            resolvedMaxRating = userInfo.maxRating;
-            metaLatest = await HandleMeta.findOneAndUpdate(
-              { handle: entry.handle },
-              {
-                handle: entry.handle,
-                lastUpdateDate: metaLatest?.lastUpdateDate ?? todayKey,
-                currentRating,
-                totalSolved: solvedCount,
-              },
-              { upsert: true, new: true }
-            ).lean();
+            // Use cached data if available, only fetch if absolutely necessary
+            solvedCount = metaLatest?.totalSolved || 0;
+            resolvedMaxRating = metaLatest?.maxRating || 0;
+            
+            if (solvedCount === 0) {
+              const userInfo = await getUserInfo(entry.handle);
+              const solvedAll = await getSolvedProblems(entry.handle);
+              solvedCount = solvedAll.length;
+              resolvedMaxRating = userInfo.maxRating;
+              metaLatest = await HandleMeta.findOneAndUpdate(
+                { handle: entry.handle },
+                {
+                  handle: entry.handle,
+                  lastUpdateDate: metaLatest?.lastUpdateDate ?? todayKey,
+                  currentRating,
+                  maxRating: resolvedMaxRating,
+                  totalSolved: solvedCount,
+                },
+                { upsert: true, new: true }
+              ).lean();
+            }
           }
           return {
             id: entry._id,
@@ -220,7 +227,7 @@ router.get("/standings", async (req, res) => {
             name: entry.name || "",
             roll: entry.roll || "",
             batch: entry.batch || "",
-            maxRating: resolvedMaxRating || (await getUserInfo(entry.handle)).maxRating,
+            maxRating: resolvedMaxRating || metaLatest?.maxRating || 0,
             solvedCount,
             standingRating: currentRating,
             recentStats: historyStats,

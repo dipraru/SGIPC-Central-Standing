@@ -8,6 +8,7 @@ import { PendingProblem } from "../models/PendingProblem.js";
 import { RatingHistory } from "../models/RatingHistory.js";
 import { getUserInfo } from "../services/codeforces.js";
 import { Admin } from "../models/Admin.js";
+import { refreshHandleData } from "../services/scheduler.js";
 
 const router = express.Router();
 
@@ -73,6 +74,12 @@ router.post("/handles", authRequired, async (req, res) => {
     roll: roll?.trim() || "",
     batch: batch?.trim() || ""
   });
+  
+  // Trigger immediate data refresh for new handle in background
+  refreshHandleData(normalized).catch(err => 
+    console.error(`Background refresh failed for ${normalized}:`, err)
+  );
+  
   return res.status(201).json(created);
 });
 

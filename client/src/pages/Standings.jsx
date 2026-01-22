@@ -57,6 +57,11 @@ const Standings = () => {
       setStandings(data);
       setLastUpdated(new Date());
       setError("");
+      // Cache in localStorage
+      localStorage.setItem('individualStandings', JSON.stringify({
+        data,
+        timestamp: Date.now()
+      }));
       return true;
     } catch (err) {
       return false;
@@ -67,6 +72,24 @@ const Standings = () => {
     let mounted = true;
 
     const initialLoad = async () => {
+      // Try loading from cache first
+      const cached = localStorage.getItem('individualStandings');
+      if (cached) {
+        try {
+          const { data, timestamp } = JSON.parse(cached);
+          const age = Date.now() - timestamp;
+          // Use cache if less than 24 hours old
+          if (age < 24 * 60 * 60 * 1000) {
+            setStandings(data);
+            setLastUpdated(new Date(timestamp));
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          // Ignore cache errors
+        }
+      }
+
       setLoading(true);
       let success = false;
       while (mounted && !success) {
@@ -78,13 +101,7 @@ const Standings = () => {
       if (mounted) setLoading(false);
     };
 
-    initialLoad().then(() => {
-      // Start silent polling only after initial load succeeds
-      const interval = setInterval(() => {
-        if (mounted) fetchStandingsData();
-      }, 20000);
-      return () => clearInterval(interval);
-    });
+    initialLoad();
 
     return () => {
       mounted = false;
@@ -94,6 +111,25 @@ const Standings = () => {
   useEffect(() => {
     let active = true;
     const loadTeamStandings = async () => {
+      // Try loading from cache first
+      const cached = localStorage.getItem('teamStandings');
+      if (cached) {
+        try {
+          const { data, eloMode, timestamp } = JSON.parse(cached);
+          const age = Date.now() - timestamp;
+          // Use cache if less than 24 hours old
+          if (age < 24 * 60 * 60 * 1000) {
+            setTeamStandings(data.standings || []);
+            setEloMode(data.eloMode || eloMode || "normal");
+            setTeamLoading(false);
+            setTeamError("");
+            return;
+          }
+        } catch (e) {
+          // Ignore cache errors
+        }
+      }
+
       try {
         setTeamLoading(true);
         const data = await getVjudgeStandings();
@@ -101,6 +137,12 @@ const Standings = () => {
         setTeamStandings(data.standings || []);
         setEloMode(data.eloMode || "normal");
         setTeamError("");
+        // Cache in localStorage
+        localStorage.setItem('teamStandings', JSON.stringify({
+          data,
+          eloMode: data.eloMode,
+          timestamp: Date.now()
+        }));
       } catch (err) {
         if (!active) return;
         setTeamError("Unable to load team standings");
@@ -205,7 +247,7 @@ const Standings = () => {
                   <th>Handle</th>
                   <th style={{ width: 120 }}>Max Rating</th>
                   <th style={{ width: 100 }}>Solved</th>
-                  <th style={{ width: 140 }}>Elo Rating</th>
+                  <th style={{ width: 140 }}>Practice Rating</th>
                   <th style={{ width: 80 }}>Info</th>
                   <th style={{ width: 100 }}>Activity</th>
                 </tr>
@@ -347,7 +389,7 @@ const Standings = () => {
                 <tr>
                   <th style={{ width: 60 }}>Rank</th>
                   <th>Team Name</th>
-                  <th style={{ width: 140 }}>Elo Rating</th>
+                  <th style={{ width: 140 }}>Team Rating</th>
                   <th style={{ width: 100 }}>Contests</th>
                   <th style={{ width: 140 }}>W-L-D</th>
                 </tr>

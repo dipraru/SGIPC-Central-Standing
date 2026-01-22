@@ -194,7 +194,7 @@ router.get("/standings", async (req, res) => {
             .reverse();
 
           let metaLatest = await HandleMeta.findOne({ handle: entry.handle }).lean();
-          const currentRating = metaLatest?.currentRating ?? 1000;
+          const currentRating = historyMap.get(todayKey)?.rating ?? metaLatest?.currentRating ?? 1000;
           let solvedCount = metaLatest?.totalSolved ?? totalSolved;
           let resolvedMaxRating = maxRating;
 
@@ -276,6 +276,7 @@ router.get("/standings", async (req, res) => {
             })
             .reverse();
           const metaLatest = await HandleMeta.findOne({ handle: entry.handle }).lean();
+          const currentRating = historyMap.get(todayKey)?.rating ?? metaLatest?.currentRating ?? 1000;
           return {
             id: entry._id,
             handle: entry.handle,
@@ -284,7 +285,7 @@ router.get("/standings", async (req, res) => {
             batch: entry.batch || "",
             maxRating: metaLatest?.maxRating ?? 0,
             solvedCount: metaLatest?.totalSolved ?? 0,
-            standingRating: metaLatest?.currentRating ?? 1000,
+            standingRating: currentRating,
             recentStats: historyStats,
           };
         }

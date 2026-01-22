@@ -52,6 +52,7 @@ const AdminDashboard = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [credMessage, setCredMessage] = useState("");
   const [credError, setCredError] = useState("");
+  const [showCredentials, setShowCredentials] = useState(false);
 
   const handleAuthError = (err) => {
     if (err?.response?.status === 401) {
@@ -353,57 +354,71 @@ const AdminDashboard = () => {
       </div>
 
       <div className="card" style={{ marginBottom: 24 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
           <div>
             <h2>Admin Account</h2>
             <p className="card-subtitle">Update username or password</p>
           </div>
-          {credMessage && <span className="notice success">{credMessage}</span>}
-          {credError && <span className="notice error">{credError}</span>}
-        </div>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-          <div className="field">
-            <label>Current Password</label>
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="Enter current password"
-            />
-          </div>
-          <div className="field">
-            <label>New Username (optional)</label>
-            <input
-              type="text"
-              value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value)}
-              placeholder="New username"
-            />
-          </div>
-          <div className="field">
-            <label>New Password (optional)</label>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="New password"
-            />
-          </div>
-          <div className="field">
-            <label>Confirm New Password</label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Confirm new password"
-            />
-          </div>
-        </div>
-        <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button className="btn primary" onClick={handleUpdateCredentials}>
-            Update Credentials
+          <button
+            className="btn secondary"
+            onClick={() => setShowCredentials((prev) => !prev)}
+            style={{ whiteSpace: "nowrap" }}
+          >
+            {showCredentials ? "Hide" : "Change Credentials"}
           </button>
         </div>
+
+        {showCredentials && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+              {credMessage && <span className="notice success">{credMessage}</span>}
+              {credError && <span className="notice error">{credError}</span>}
+            </div>
+            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+              <div className="field">
+                <label>Current Password</label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter current password"
+                />
+              </div>
+              <div className="field">
+                <label>New Username (optional)</label>
+                <input
+                  type="text"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  placeholder="New username"
+                />
+              </div>
+              <div className="field">
+                <label>New Password (optional)</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="New password"
+                />
+              </div>
+              <div className="field">
+                <label>Confirm New Password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm new password"
+                />
+              </div>
+            </div>
+            <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button className="btn primary" onClick={handleUpdateCredentials}>
+                Update Credentials
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="tabs" style={{ marginBottom: "24px" }}>

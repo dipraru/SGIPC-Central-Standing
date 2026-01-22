@@ -13,7 +13,10 @@ export async function refreshHandleData(handle, options = {}) {
   try {
     console.log(`Refreshing data for handle: ${handle}`);
     const nowSeconds = Math.floor(Date.now() / 1000);
-    const todayKey = toLocalDateKey(nowSeconds);
+    const localTodayKey = toLocalDateKey(nowSeconds);
+    const localTodayStart = startOfLocalDayFromDateKey(localTodayKey);
+    const targetEndSeconds = localTodayStart - 1;
+    const targetDateKey = toLocalDateKey(targetEndSeconds);
     
     // Fetch user info and solved problems
     const [userInfo, solvedProblems] = await Promise.all([
@@ -24,15 +27,17 @@ export async function refreshHandleData(handle, options = {}) {
     // Update meta information
     const existingMeta = await HandleMeta.findOne({ handle }).lean();
     const lastUpdateDate = existingMeta?.lastUpdateDate || "";
-    if (lastUpdateDate === todayKey && !fullHistory) {
-      console.log(`Handle ${handle} already updated today; refreshing today's rating`);
+    if (lastUpdateDate === targetDateKey && !fullHistory) {
+      console.log(`Handle ${handle} already updated for ${targetDateKey}; skipping`);
+      return;
     }
 
     const totalSolved = solvedProblems.length;
 
     // Update rating history for last 6 days
+    const targetDayStart = startOfLocalDayFromDateKey(targetDateKey);
     const lastSixDates = Array.from({ length: 6 }, (_, i) =>
-      toLocalDateKey(nowSeconds - (5 - i) * 86400)
+      toLocalDateKey(targetDayStart - (5 - i) * 86400)
     );
     const lastFiveDates = lastSixDates.slice(1);
 
@@ -44,7 +49,7 @@ export async function refreshHandleData(handle, options = {}) {
         continue;
       }
       const dateKey = toLocalDateKey(problem.solvedAtSeconds);
-      const daysAgo = Math.floor((nowSeconds - problem.solvedAtSeconds) / 86400);
+      const daysAgo = Math.floor((targetEndSeconds - problem.solvedAtSeconds) / 86400);
 
       if (!problem.rating) {
         if (daysAgo <= 30) {
@@ -91,10 +96,7 @@ export async function refreshHandleData(handle, options = {}) {
     if (fullHistory || !existingMeta) {
       const historyMap = new Map();
       for (const dateKey of lastSixDates) {
-        const endSeconds =
-          dateKey === todayKey
-            ? nowSeconds
-            : startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
+        const endSeconds = startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
         const ratingForDate = computeRatingUpTo({
           maxRating: userInfo.maxRating,
           solvedProblems,
@@ -107,22 +109,22 @@ export async function refreshHandleData(handle, options = {}) {
         ).lean();
         historyMap.set(dateKey, created);
       }
-      currentRating = historyMap.get(todayKey)?.rating ?? 1000;
+      currentRating = historyMap.get(targetDateKey)?.rating ?? 1000;
     } else {
-      // Only compute today's rating; keep previous days as-is
-      const todayRating = computeRatingUpTo({
+      // Only compute the last completed day's rating; keep previous days as-is
+      const dayRating = computeRatingUpTo({
         maxRating: userInfo.maxRating,
         solvedProblems,
-        dayEndSeconds: nowSeconds,
+        dayEndSeconds: targetEndSeconds,
       });
 
       await RatingHistory.findOneAndUpdate(
-        { handle, date: todayKey },
-        { handle, date: todayKey, rating: todayRating },
+        { handle, date: targetDateKey },
+        { handle, date: targetDateKey, rating: dayRating },
         { upsert: true, new: true }
       );
 
-      currentRating = todayRating ?? 1000;
+      currentRating = dayRating ?? 1000;
     }
 
     await HandleMeta.findOneAndUpdate(
@@ -132,7 +134,7 @@ export async function refreshHandleData(handle, options = {}) {
         maxRating: userInfo.maxRating,
         totalSolved,
         currentRating,
-        lastUpdateDate: todayKey,
+        lastUpdateDate: targetDateKey,
       },
       { upsert: true, new: true }
     );
@@ -145,7 +147,7 @@ export async function refreshHandleData(handle, options = {}) {
       PendingProblem.deleteMany({ handle, date: { $lt: oldestKeptDate } })
     ]);
 
-    console.log(`Successfully refreshed data for handle: ${handle}`);
+    console.log(`Successfully refreshed data for handle: ${handle} (up to ${targetDateKey})`);
   } catch (error) {
     console.error(`Error refreshing handle ${handle}:`, error.message);
   }

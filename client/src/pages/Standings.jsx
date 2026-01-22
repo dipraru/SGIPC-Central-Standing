@@ -83,6 +83,9 @@ const Standings = () => {
             setStandings(data);
             setLastUpdated(new Date(timestamp));
             setLoading(false);
+            fetchStandingsData().then(() => {
+              if (mounted) setLoading(false);
+            });
             return;
           }
         } catch (e) {
@@ -123,6 +126,22 @@ const Standings = () => {
             setEloMode(data.eloMode || eloMode || "normal");
             setTeamLoading(false);
             setTeamError("");
+            getVjudgeStandings()
+              .then((fresh) => {
+                if (!active) return;
+                setTeamStandings(fresh.standings || []);
+                setEloMode(fresh.eloMode || "normal");
+                setTeamError("");
+                localStorage.setItem('teamStandings', JSON.stringify({
+                  data: fresh,
+                  eloMode: fresh.eloMode,
+                  timestamp: Date.now()
+                }));
+              })
+              .catch(() => {
+                if (!active) return;
+                setTeamError("Unable to load team standings");
+              });
             return;
           }
         } catch (e) {

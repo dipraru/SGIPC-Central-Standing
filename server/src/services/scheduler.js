@@ -5,10 +5,11 @@ import { RatingHistory } from "../models/RatingHistory.js";
 import { DailySolved } from "../models/DailySolved.js";
 import { PendingProblem } from "../models/PendingProblem.js";
 import { getSolvedProblems, getUserInfo } from "./codeforces.js";
-import { toLocalDateKey, computeRatingUpTo } from "./elo.js";
+import { toLocalDateKey, computeRatingUpTo, startOfLocalDayFromDateKey } from "./elo.js";
 
 // Function to refresh data for a single handle
-export async function refreshHandleData(handle) {
+export async function refreshHandleData(handle, options = {}) {
+  const { fullHistory = false } = options;
   try {
     console.log(`Refreshing data for handle: ${handle}`);
     const nowSeconds = Math.floor(Date.now() / 1000);
@@ -23,7 +24,7 @@ export async function refreshHandleData(handle) {
     // Update meta information
     const existingMeta = await HandleMeta.findOne({ handle }).lean();
     const lastUpdateDate = existingMeta?.lastUpdateDate || "";
-    if (lastUpdateDate === todayKey) {
+    if (lastUpdateDate === todayKey && !fullHistory) {
       console.log(`Handle ${handle} already updated today; refreshing today's rating`);
     }
 
@@ -86,20 +87,43 @@ export async function refreshHandleData(handle) {
       await PendingProblem.insertMany(Array.from(pendingMap.values()));
     }
 
-    // Only compute today's rating; keep previous days as-is
-    const todayRating = computeRatingUpTo({
-      maxRating: userInfo.maxRating,
-      solvedProblems,
-      dayEndSeconds: nowSeconds,
-    });
+    let currentRating = 1000;
+    if (fullHistory || !existingMeta) {
+      const historyMap = new Map();
+      for (const dateKey of lastSixDates) {
+        const endSeconds =
+          dateKey === todayKey
+            ? nowSeconds
+            : startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
+        const ratingForDate = computeRatingUpTo({
+          maxRating: userInfo.maxRating,
+          solvedProblems,
+          dayEndSeconds: endSeconds,
+        });
+        const created = await RatingHistory.findOneAndUpdate(
+          { handle, date: dateKey },
+          { handle, date: dateKey, rating: ratingForDate },
+          { upsert: true, new: true }
+        ).lean();
+        historyMap.set(dateKey, created);
+      }
+      currentRating = historyMap.get(todayKey)?.rating ?? 1000;
+    } else {
+      // Only compute today's rating; keep previous days as-is
+      const todayRating = computeRatingUpTo({
+        maxRating: userInfo.maxRating,
+        solvedProblems,
+        dayEndSeconds: nowSeconds,
+      });
 
-    await RatingHistory.findOneAndUpdate(
-      { handle, date: todayKey },
-      { handle, date: todayKey, rating: todayRating },
-      { upsert: true, new: true }
-    );
+      await RatingHistory.findOneAndUpdate(
+        { handle, date: todayKey },
+        { handle, date: todayKey, rating: todayRating },
+        { upsert: true, new: true }
+      );
 
-    const currentRating = todayRating ?? 1000;
+      currentRating = todayRating ?? 1000;
+    }
 
     await HandleMeta.findOneAndUpdate(
       { handle },

@@ -12,6 +12,8 @@ const Standings = () => {
   const [teamLoading, setTeamLoading] = useState(true);
   const [teamError, setTeamError] = useState("");
   const [eloMode, setEloMode] = useState("normal");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalData, setModalData] = useState(null);
   const eloModeLabels = {
     normal: "Classic Elo",
     "gain-only": "Gain-only",
@@ -27,6 +29,16 @@ const Standings = () => {
 
   const toggleHandle = (id) => {
     setOpenHandleId(openHandleId === id ? null : id);
+  };
+
+  const openModal = (handle) => {
+    setModalData(handle);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setModalData(null);
   };
 
   const fetchStandingsData = async () => {
@@ -152,7 +164,8 @@ const Standings = () => {
                   <th style={{ width: 120 }}>Max Rating</th>
                   <th style={{ width: 100 }}>Solved</th>
                   <th style={{ width: 140 }}>Elo Rating</th>
-                  <th style={{ width: 100 }}>Details</th>
+                  <th style={{ width: 80 }}>Info</th>
+                  <th style={{ width: 100 }}>Activity</th>
                 </tr>
               </thead>
               <tbody>
@@ -187,6 +200,15 @@ const Standings = () => {
                       <td>
                         <button
                           className="secondary sm"
+                          onClick={() => openModal(row)}
+                          title="View participant info"
+                        >
+                          👁️
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          className="secondary sm"
                           onClick={() => toggleHandle(row.id)}
                         >
                           {openHandleId === row.id ? "Hide" : "View"}
@@ -195,7 +217,7 @@ const Standings = () => {
                     </tr>
                     {openHandleId === row.id && (
                       <tr>
-                        <td colSpan={6}>
+                        <td colSpan={7}>
                           <div className="dropdown-panel">
                             <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600 }}>
                               Recent Activity (Last 5 Days)
@@ -307,6 +329,48 @@ const Standings = () => {
               </tbody>
             </table>
           )}
+        </div>
+      )}
+
+      {/* Modal for viewing handle details */}
+      {modalOpen && modalData && (
+        <div className="modal-overlay" onClick={closeModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Participant Details</h2>
+              <button className="modal-close" onClick={closeModal}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-row">
+                <span className="detail-label">Handle:</span>
+                <span className="detail-value">
+                  <a 
+                    href={`https://codeforces.com/profile/${modalData.handle}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ color: "var(--primary)", textDecoration: "none", fontWeight: 600 }}
+                  >
+                    {modalData.handle}
+                  </a>
+                </span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">Name:</span>
+                <span className="detail-value">{modalData.name || "Not provided"}</span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">Roll Number:</span>
+                <span className="detail-value">{modalData.roll || "Not provided"}</span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">Batch:</span>
+                <span className="detail-value">{modalData.batch || "Not provided"}</span>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={closeModal}>Close</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

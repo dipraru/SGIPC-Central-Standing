@@ -56,7 +56,7 @@ router.get("/handles", authRequired, async (req, res) => {
 });
 
 router.post("/handles", authRequired, async (req, res) => {
-  const { handle } = req.body;
+  const { handle, name, roll, batch } = req.body;
   if (!handle) {
     return res.status(400).json({ message: "Handle is required" });
   }
@@ -67,19 +67,25 @@ router.post("/handles", authRequired, async (req, res) => {
     return res.status(400).json({ message: "Handle does not exist" });
   }
 
-  const created = await Handle.create({ handle: normalized });
+  const created = await Handle.create({ 
+    handle: normalized,
+    name: name?.trim() || "",
+    roll: roll?.trim() || "",
+    batch: batch?.trim() || ""
+  });
   return res.status(201).json(created);
 });
 
 router.put("/handles/:id", authRequired, async (req, res) => {
-  const { handle } = req.body;
-  if (!handle) {
-    return res.status(400).json({ message: "Handle is required" });
-  }
+  const { name, roll, batch } = req.body;
 
   const updated = await Handle.findByIdAndUpdate(
     req.params.id,
-    { handle },
+    { 
+      name: name?.trim() || "",
+      roll: roll?.trim() || "",
+      batch: batch?.trim() || ""
+    },
     { new: true }
   );
 

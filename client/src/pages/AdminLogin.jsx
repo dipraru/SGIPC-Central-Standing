@@ -16,7 +16,8 @@ const AdminLogin = () => {
       setError("");
       const data = await loginAdmin({ username, password });
       localStorage.setItem("sgipc_token", data.token);
-      navigate("/admin");
+      // Force reload to update auth state
+      window.location.href = "/admin";
     } catch (err) {
       setError("Invalid login credentials");
     } finally {

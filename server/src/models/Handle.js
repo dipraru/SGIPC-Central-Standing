@@ -3,6 +3,9 @@ import mongoose from "mongoose";
 const handleSchema = new mongoose.Schema(
   {
     handle: { type: String, required: true, unique: true, trim: true },
+    name: { type: String, default: "" },
+    roll: { type: String, default: "" },
+    batch: { type: String, default: "" },
     ratings: [
       {
         date: { type: String, required: true },

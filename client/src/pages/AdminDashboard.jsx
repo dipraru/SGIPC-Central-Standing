@@ -3,6 +3,7 @@ import {
   createHandle,
   deleteHandle,
   getHandles,
+  updateHandle,
   createVjudgeContest,
   createVjudgeTeam,
   deleteVjudgeContest,
@@ -16,10 +17,20 @@ import {
 } from "../api.js";
 
 const AdminDashboard = () => {
+  const [activeTab, setActiveTab] = useState("individual");
   const [handles, setHandles] = useState([]);
   const [newHandle, setNewHandle] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newRoll, setNewRoll] = useState("");
+  const [newBatch, setNewBatch] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [editingHandleId, setEditingHandleId] = useState(null);
+  const [editingName, setEditingName] = useState("");
+  const [editingRoll, setEditingRoll] = useState("");
+  const [editingBatch, setEditingBatch] = useState("");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalData, setModalData] = useState(null);
   const [teamName, setTeamName] = useState("");
   const [teamAliases, setTeamAliases] = useState("");
   const [contestIdInput, setContestIdInput] = useState("");
@@ -82,8 +93,16 @@ const AdminDashboard = () => {
   const handleCreate = async () => {
     if (!newHandle.trim()) return;
     try {
-      await createHandle({ handle: newHandle.trim() });
+      await createHandle({ 
+        handle: newHandle.trim(),
+        name: newName.trim(),
+        roll: newRoll.trim(),
+        batch: newBatch.trim()
+      });
       setNewHandle("");
+      setNewName("");
+      setNewRoll("");
+      setNewBatch("");
       loadHandles();
     } catch (err) {
       const message = err?.response?.data?.message || "Unable to add handle";
@@ -98,6 +117,44 @@ const AdminDashboard = () => {
     } catch (err) {
       setError("Unable to delete handle");
     }
+  };
+
+  const startHandleEdit = (handle) => {
+    setEditingHandleId(handle._id);
+    setEditingName(handle.name || "");
+    setEditingRoll(handle.roll || "");
+    setEditingBatch(handle.batch || "");
+  };
+
+  const cancelHandleEdit = () => {
+    setEditingHandleId(null);
+    setEditingName("");
+    setEditingRoll("");
+    setEditingBatch("");
+  };
+
+  const handleUpdateHandle = async (id) => {
+    try {
+      await updateHandle(id, {
+        name: editingName.trim(),
+        roll: editingRoll.trim(),
+        batch: editingBatch.trim()
+      });
+      cancelHandleEdit();
+      loadHandles();
+    } catch (err) {
+      setError("Unable to update handle");
+    }
+  };
+
+  const openModal = (handle) => {
+    setModalData(handle);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setModalData(null);
   };
 
   const handleAddTeam = async () => {
@@ -255,22 +312,71 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      <div className="card">
-        <h2 style={{ marginBottom: "8px" }}>Codeforces Handles</h2>
-        <p style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>Add or remove participant handles for individual standings</p>
-        
-        <div className="form-row" style={{ marginBottom: "24px" }}>
-          <input
-            type="text"
-            placeholder="Enter Codeforces handle"
-            value={newHandle}
-            onChange={(event) => setNewHandle(event.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && handleCreate()}
-          />
-          <button className="primary" onClick={handleCreate}>
+      <div className="tabs" style={{ marginBottom: "24px" }}>
+        <button
+          className={`tab ${activeTab === "individual" ? "active" : ""}`}
+          onClick={() => setActiveTab("individual")}
+        >
+          Individual Standings
+        </button>
+        <button
+          className={`tab ${activeTab === "team" ? "active" : ""}`}
+          onClick={() => setActiveTab("team")}
+        >
+          Team Standings
+        </button>
+      </div>
+
+      {activeTab === "individual" && (
+        <div className="card">
+          <h2 style={{ marginBottom: "8px" }}>Codeforces Handles</h2>
+          <p style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>Add or remove participant handles for individual standings</p>
+          
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+            <div>
+              <label className="input-label">Codeforces Handle *</label>
+              <input
+                type="text"
+                placeholder="e.g., tourist"
+                value={newHandle}
+                onChange={(event) => setNewHandle(event.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleCreate()}
+              />
+            </div>
+            <div>
+              <label className="input-label">Name</label>
+              <input
+                type="text"
+                placeholder="Full name"
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleCreate()}
+              />
+            </div>
+            <div>
+              <label className="input-label">Roll Number</label>
+              <input
+                type="text"
+                placeholder="e.g., 2024001"
+                value={newRoll}
+                onChange={(event) => setNewRoll(event.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleCreate()}
+              />
+            </div>
+            <div>
+              <label className="input-label">Batch</label>
+              <input
+                type="text"
+                placeholder="e.g., 2024"
+                value={newBatch}
+                onChange={(event) => setNewBatch(event.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleCreate()}
+              />
+            </div>
+          </div>
+          <button className="primary" onClick={handleCreate} style={{ marginBottom: "24px" }}>
             Add Handle
           </button>
-        </div>
 
         {loading && (
           <div className="empty-state">
@@ -289,6 +395,9 @@ const AdminDashboard = () => {
             <thead>
               <tr>
                 <th>Handle</th>
+                <th>Name</th>
+                <th>Roll</th>
+                <th>Batch</th>
                 <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
@@ -297,13 +406,83 @@ const AdminDashboard = () => {
                 <tr key={row._id}>
                   <td><strong>{row.handle}</strong></td>
                   <td>
+                    {editingHandleId === row._id ? (
+                      <input
+                        type="text"
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        placeholder="Name"
+                        style={{ width: "100%" }}
+                      />
+                    ) : (
+                      row.name || "-"
+                    )}
+                  </td>
+                  <td>
+                    {editingHandleId === row._id ? (
+                      <input
+                        type="text"
+                        value={editingRoll}
+                        onChange={(e) => setEditingRoll(e.target.value)}
+                        placeholder="Roll"
+                        style={{ width: "100%" }}
+                      />
+                    ) : (
+                      row.roll || "-"
+                    )}
+                  </td>
+                  <td>
+                    {editingHandleId === row._id ? (
+                      <input
+                        type="text"
+                        value={editingBatch}
+                        onChange={(e) => setEditingBatch(e.target.value)}
+                        placeholder="Batch"
+                        style={{ width: "100%" }}
+                      />
+                    ) : (
+                      row.batch || "-"
+                    )}
+                  </td>
+                  <td>
                     <div className="actions" style={{ justifyContent: "flex-end" }}>
-                      <button
-                        className="danger"
-                        onClick={() => handleDelete(row._id)}
-                      >
-                        Delete
-                      </button>
+                      {editingHandleId === row._id ? (
+                        <>
+                          <button
+                            className="primary"
+                            onClick={() => handleUpdateHandle(row._id)}
+                          >
+                            Save
+                          </button>
+                          <button
+                            className="secondary"
+                            onClick={cancelHandleEdit}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="secondary"
+                            onClick={() => openModal(row)}
+                          >
+                            👁️ View
+                          </button>
+                          <button
+                            className="secondary"
+                            onClick={() => startHandleEdit(row)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="danger"
+                            onClick={() => handleDelete(row._id)}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -311,9 +490,11 @@ const AdminDashboard = () => {
             </tbody>
           </table>
         )}
-      </div>
+        </div>
+      )}
 
-      <div className="card" style={{ marginTop: "24px" }}>
+      {activeTab === "team" && (
+      <div className="card">
         <h2 style={{ marginBottom: "8px" }}>VJudge Team Standings</h2>
         <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>Configure teams, contests, and Elo rating mode</p>
 
@@ -605,6 +786,49 @@ const AdminDashboard = () => {
           </table>
         )}
       </div>
+      )}
+
+      {/* Modal for viewing handle details */}
+      {modalOpen && modalData && (
+        <div className="modal-overlay" onClick={closeModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Participant Details</h2>
+              <button className="modal-close" onClick={closeModal}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-row">
+                <span className="detail-label">Handle:</span>
+                <span className="detail-value">
+                  <a 
+                    href={`https://codeforces.com/profile/${modalData.handle}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ color: "var(--primary)", textDecoration: "none", fontWeight: 600 }}
+                  >
+                    {modalData.handle}
+                  </a>
+                </span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">Name:</span>
+                <span className="detail-value">{modalData.name || "Not provided"}</span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">Roll Number:</span>
+                <span className="detail-value">{modalData.roll || "Not provided"}</span>
+              </div>
+              <div className="detail-row">
+                <span className="detail-label">Batch:</span>
+                <span className="detail-value">{modalData.batch || "Not provided"}</span>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={closeModal}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -217,6 +217,9 @@ router.get("/standings", async (req, res) => {
           return {
             id: entry._id,
             handle: entry.handle,
+            name: entry.name || "",
+            roll: entry.roll || "",
+            batch: entry.batch || "",
             maxRating: resolvedMaxRating || (await getUserInfo(entry.handle)).maxRating,
             solvedCount,
             standingRating: currentRating,
@@ -269,6 +272,9 @@ router.get("/standings", async (req, res) => {
           return {
             id: entry._id,
             handle: entry.handle,
+            name: entry.name || "",
+            roll: entry.roll || "",
+            batch: entry.batch || "",
             maxRating: metaLatest?.maxRating ?? 0,
             solvedCount: metaLatest?.totalSolved ?? 0,
             standingRating: metaLatest?.currentRating ?? 1000,

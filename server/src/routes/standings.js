@@ -24,10 +24,11 @@ router.get("/standings", async (req, res) => {
     const results = await Promise.all(
       handles.map(async (entry) => {
         const nowSeconds = Math.floor(Date.now() / 1000);
-        const todayKey = toLocalDateKey(nowSeconds);
-        const todayEndSeconds = nowSeconds;
+        const targetSeconds = nowSeconds - 86400;
+        const todayKey = toLocalDateKey(targetSeconds);
+        const todayEndSeconds = startOfLocalDayFromDateKey(todayKey) + 86400 - 1;
         const lastSixDates = Array.from({ length: 6 }, (_, i) =>
-          toLocalDateKey(nowSeconds - (5 - i) * 86400)
+          toLocalDateKey(targetSeconds - (5 - i) * 86400)
         );
         const lastFiveDates = lastSixDates.slice(1);
         const forceRefresh = req.query.refresh === "1";

@@ -727,3 +727,82 @@ button.danger:hover {
   justify-content: flex-end;
   gap: 12px;
 }
+
+/* Rating Level Badges */
+.rating-level {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.rating-level.dead {
+  background: #9ca3af;
+  color: white;
+}
+
+.rating-level.warmup {
+  background: #06b6d4;
+  color: white;
+}
+
+.rating-level.trying {
+  background: #3b82f6;
+  color: white;
+}
+
+.rating-level.tryinghard {
+  background: #a855f7;
+  color: white;
+}
+
+.rating-level.pushing {
+  background: #f97316;
+  color: white;
+}
+
+.rating-level.hardcore {
+  background: #ef4444;
+  color: white;
+}
+
+.rating-level.aliens {
+  background: #7f1d1d;
+  color: white;
+}
+
+/* Rating Legend */
+.rating-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+  background: var(--gray-50);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.legend-color {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+.legend-color.dead { background: #9ca3af; }
+.legend-color.warmup { background: #06b6d4; }
+.legend-color.trying { background: #3b82f6; }
+.legend-color.tryinghard { background: #a855f7; }
+.legend-color.pushing { background: #f97316; }
+.legend-color.hardcore { background: #ef4444; }
+.legend-color.aliens { background: #7f1d1d; }

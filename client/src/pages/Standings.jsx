@@ -27,6 +27,16 @@ const Standings = () => {
     return "default";
   };
 
+  const getRatingLevel = (rating) => {
+    if (rating < 1200) return { level: "Dead", class: "dead" };
+    if (rating < 1400) return { level: "WarmUp", class: "warmup" };
+    if (rating < 1800) return { level: "Trying", class: "trying" };
+    if (rating < 2000) return { level: "TryingHard", class: "tryinghard" };
+    if (rating < 2400) return { level: "Pushing", class: "pushing" };
+    if (rating < 3000) return { level: "Hardcore", class: "hardcore" };
+    return { level: "CompetingWithAliens", class: "aliens" };
+  };
+
   const toggleHandle = (id) => {
     setOpenHandleId(openHandleId === id ? null : id);
   };
@@ -156,6 +166,38 @@ const Standings = () => {
             </div>
           )}
           {!loading && !error && standings.length > 0 && (
+            <>
+              <div className="rating-legend">
+                <strong style={{ marginRight: "8px", color: "var(--gray-700)" }}>Rating Levels:</strong>
+                <div className="legend-item">
+                  <div className="legend-color dead"></div>
+                  <span>&lt;1200 Dead</span>
+                </div>
+                <div className="legend-item">
+                  <div className="legend-color warmup"></div>
+                  <span>&lt;1400 WarmUp</span>
+                </div>
+                <div className="legend-item">
+                  <div className="legend-color trying"></div>
+                  <span>&lt;1800 Trying</span>
+                </div>
+                <div className="legend-item">
+                  <div className="legend-color tryinghard"></div>
+                  <span>&lt;2000 TryingHard</span>
+                </div>
+                <div className="legend-item">
+                  <div className="legend-color pushing"></div>
+                  <span>&lt;2400 Pushing</span>
+                </div>
+                <div className="legend-item">
+                  <div className="legend-color hardcore"></div>
+                  <span>&lt;3000 Hardcore</span>
+                </div>
+                <div className="legend-item">
+                  <div className="legend-color aliens"></div>
+                  <span>≥3000 CompetingWithAliens</span>
+                </div>
+              </div>
             <table className="table">
               <thead>
                 <tr>
@@ -194,8 +236,15 @@ const Standings = () => {
                       <td>
                         <span className="stat-badge solved">{row.solvedCount}</span>
                       </td>
-                      <td style={{ fontWeight: 700, fontSize: 16, color: "var(--primary)" }}>
-                        {row.standingRating}
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-start" }}>
+                          <span style={{ fontWeight: 700, fontSize: 16, color: "var(--gray-900)" }}>
+                            {row.standingRating}
+                          </span>
+                          <span className={`rating-level ${getRatingLevel(row.standingRating).class}`}>
+                            {getRatingLevel(row.standingRating).level}
+                          </span>
+                        </div>
                       </td>
                       <td>
                         <button
@@ -266,6 +315,7 @@ const Standings = () => {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </div>
       )}

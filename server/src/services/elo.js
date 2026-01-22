@@ -1,5 +1,19 @@
 const FIVE_DAYS = 5;
 const THIRTY_DAYS = 30;
+export const TIMEZONE_OFFSET_SECONDS = 6 * 3600;
+
+export const toLocalDateKey = (seconds) =>
+  new Date((seconds + TIMEZONE_OFFSET_SECONDS) * 1000)
+    .toISOString()
+    .slice(0, 10);
+
+export const startOfLocalDaySeconds = (seconds) =>
+  Math.floor((seconds + TIMEZONE_OFFSET_SECONDS) / 86400) * 86400 -
+  TIMEZONE_OFFSET_SECONDS;
+
+export const startOfLocalDayFromDateKey = (dateKey) =>
+  Math.floor(new Date(`${dateKey}T00:00:00Z`).getTime() / 1000) -
+  TIMEZONE_OFFSET_SECONDS;
 
 const daysBetween = (fromSeconds, toSeconds) =>
   Math.floor((toSeconds - fromSeconds) / 86400);
@@ -98,13 +112,13 @@ export const calculateEloScore = ({ maxRating, solvedProblems }) => {
 export const buildRecentStats = ({ maxRating, solvedProblems }) => {
   const safeMax = Number.isFinite(maxRating) ? maxRating : 0;
   const nowSeconds = Math.floor(Date.now() / 1000);
-  const startOfDaySeconds = (seconds) => Math.floor(seconds / 86400) * 86400;
+  const todayKey = toLocalDateKey(nowSeconds);
   const recentDays = Array.from({ length: FIVE_DAYS }, (_, index) => {
     const daySeconds = nowSeconds - (FIVE_DAYS - 1 - index) * 86400;
-    const dateKey = new Date(daySeconds * 1000).toISOString().slice(0, 10);
+    const dateKey = toLocalDateKey(daySeconds);
     return {
       date: dateKey,
-      dayStartSeconds: startOfDaySeconds(daySeconds),
+      dayStartSeconds: startOfLocalDaySeconds(daySeconds),
       problems: [],
       pendingCount: 0,
       delta: 0,
@@ -124,9 +138,7 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
     if (daysAgo >= FIVE_DAYS || daysAgo < 0) {
       continue;
     }
-    const dateKey = new Date(problem.solvedAtSeconds * 1000)
-      .toISOString()
-      .slice(0, 10);
+    const dateKey = toLocalDateKey(problem.solvedAtSeconds);
     const dayBucket = dayMap.get(dateKey);
     if (!dayBucket) {
       continue;
@@ -180,9 +192,7 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
   };
 
   for (const day of recentDays) {
-    const dayEndSeconds = day.date === new Date(nowSeconds * 1000).toISOString().slice(0, 10)
-      ? nowSeconds
-      : day.dayStartSeconds + 86400;
+    const dayEndSeconds = day.date === todayKey ? nowSeconds : day.dayStartSeconds + 86400;
     day.rating = computeRatingForDay({
       dayStartSeconds: day.dayStartSeconds,
       dayEndSeconds,

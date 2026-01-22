@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { getStandings } from "../api.js";
+import { getStandings, getVjudgeStandings } from "../api.js";
 
 const Standings = () => {
   const [standings, setStandings] = useState([]);
@@ -7,6 +7,15 @@ const Standings = () => {
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [openHandleId, setOpenHandleId] = useState(null);
+  const [teamStandings, setTeamStandings] = useState([]);
+  const [teamLoading, setTeamLoading] = useState(true);
+  const [teamError, setTeamError] = useState("");
+  const [eloMode, setEloMode] = useState("normal");
+  const eloModeLabels = {
+    normal: "Classic Elo (default)",
+    "gain-only": "Gain-only rating",
+    "zero-participation": "Participation required",
+  };
 
   const fetchStandingsData = async () => {
     try {
@@ -45,6 +54,33 @@ const Standings = () => {
 
     return () => {
       mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadTeamStandings = async () => {
+      try {
+        setTeamLoading(true);
+        const data = await getVjudgeStandings();
+        if (!active) return;
+        setTeamStandings(data.standings || []);
+        setEloMode(data.eloMode || "normal");
+        setTeamError("");
+      } catch (err) {
+        if (!active) return;
+        setTeamError("Unable to load team standings");
+      } finally {
+        if (active) setTeamLoading(false);
+      }
+    };
+    loadTeamStandings();
+    const interval = setInterval(() => {
+      if (active) loadTeamStandings();
+    }, 20000);
+    return () => {
+      active = false;
+      clearInterval(interval);
     };
   }, []);
 
@@ -156,6 +192,42 @@ const Standings = () => {
                     </tr>
                   )}
                 </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 24 }}>
+        <h2>Team Elo Standings (VJudge)</h2>
+        <p className="day-empty">Elo mode: {eloModeLabels[eloMode] || "Classic Elo (default)"}</p>
+        {teamLoading && <p>Loading team standings...</p>}
+        {!teamLoading && teamError && <p className="notice">{teamError}</p>}
+        {!teamLoading && !teamError && teamStandings.length === 0 && (
+          <p>No team standings yet. Ask admin to add teams and contests.</p>
+        )}
+        {!teamLoading && !teamError && teamStandings.length > 0 && (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Team</th>
+                <th>Rating</th>
+                <th>Contests</th>
+                <th>W-L-D</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teamStandings.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.rank}</td>
+                  <td>{row.name}</td>
+                  <td>{row.ratingDisplay}</td>
+                  <td>{row.contests}</td>
+                  <td>
+                    {row.wins}-{row.losses}-{row.draws}
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>

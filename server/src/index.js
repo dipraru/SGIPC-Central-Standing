@@ -4,7 +4,9 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import adminRoutes from "./routes/admin.js";
+import adminVjudgeRoutes from "./routes/adminVjudge.js";
 import standingsRoutes from "./routes/standings.js";
+import vjudgeRoutes from "./routes/vjudge.js";
 import { connectDb } from "./config/db.js";
 import { Admin } from "./models/Admin.js";
 import bcrypt from "bcryptjs";
@@ -25,7 +27,9 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin", adminVjudgeRoutes);
 app.use("/api", standingsRoutes);
+app.use("/api", vjudgeRoutes);
 
 const port = process.env.PORT || 5000;
 

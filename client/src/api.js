@@ -41,4 +41,52 @@ export const getStandings = async () => {
   return data;
 };
 
+export const getVjudgeStandings = async () => {
+  const { data } = await api.get("/vjudge/standings");
+  return data;
+};
+
+export const getVjudgeTeams = async () => {
+  const { data } = await api.get("/admin/vjudge/teams");
+  return data;
+};
+
+export const createVjudgeTeam = async (payload) => {
+  const { data } = await api.post("/admin/vjudge/teams", payload);
+  return data;
+};
+
+export const deleteVjudgeTeam = async (id) => {
+  await api.delete(`/admin/vjudge/teams/${id}`);
+};
+
+export const getVjudgeContests = async () => {
+  const { data } = await api.get("/admin/vjudge/contests");
+  return data;
+};
+
+export const createVjudgeContest = async (payload) => {
+  const { data } = await api.post("/admin/vjudge/contests", payload);
+  return data;
+};
+
+export const updateVjudgeContest = async (id, payload) => {
+  const { data } = await api.patch(`/admin/vjudge/contests/${id}`, payload);
+  return data;
+};
+
+export const deleteVjudgeContest = async (id) => {
+  await api.delete(`/admin/vjudge/contests/${id}`);
+};
+
+export const getVjudgeConfig = async () => {
+  const { data } = await api.get("/admin/vjudge/config");
+  return data;
+};
+
+export const updateVjudgeConfig = async (payload) => {
+  const { data } = await api.put("/admin/vjudge/config", payload);
+  return data;
+};
+
 /* WQ2LDzMUdnmNOGns */

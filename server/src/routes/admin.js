@@ -119,11 +119,16 @@ router.post("/handles", authRequired, async (req, res) => {
     batch: batch?.trim() || ""
   });
   
-  // Trigger immediate data refresh for new handle in background
-  refreshHandleData(normalized).catch(err => 
-    console.error(`Background refresh failed for ${normalized}:`, err)
-  );
-  
+  try {
+    // Ensure backfill completes in serverless (no fire-and-forget)
+    await refreshHandleData(normalized, { fullHistory: true });
+  } catch (error) {
+    console.error(`Backfill failed for ${normalized}:`, error);
+    return res.status(502).json({
+      message: "Handle added, but data refresh failed. Please retry.",
+    });
+  }
+
   return res.status(201).json(created);
 });
 

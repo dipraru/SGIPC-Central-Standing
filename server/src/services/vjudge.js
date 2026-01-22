@@ -289,10 +289,6 @@ export const fetchContestRank = async (contestId) => {
 };
 
 export const buildEloStandings = (contestPayloads, teamGroups, mode = "normal") => {
-  if (!contestPayloads.length || !teamGroups.length) {
-    return [];
-  }
-
   const eloMode = mode || "normal";
   const ratingState = new Map();
 
@@ -315,6 +311,20 @@ export const buildEloStandings = (contestPayloads, teamGroups, mode = "normal") 
   };
 
   teamGroups.forEach((group) => ensureTeam(group));
+
+  // If there are teams but no contest data yet, return base ratings so UI is not empty
+  if (!contestPayloads.length) {
+    return Array.from(ratingState.values())
+      .map((record) => ({
+        ...record,
+        ratingDisplay: formatRating(record.rating),
+      }))
+      .sort((a, b) => b.rating - a.rating || a.name.localeCompare(b.name))
+      .map((record, index) => ({
+        ...record,
+        rank: index + 1,
+      }));
+  }
 
   for (const contestData of contestPayloads) {
     if (!contestData?.ranklist) continue;

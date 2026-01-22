@@ -94,4 +94,9 @@ export const updateVjudgeConfig = async (payload) => {
   return data;
 };
 
+export const updateAdminCredentials = async (payload) => {
+  const { data } = await api.put("/admin/profile", payload);
+  return data;
+};
+
 /* WQ2LDzMUdnmNOGns */

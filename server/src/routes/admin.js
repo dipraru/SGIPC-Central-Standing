@@ -51,6 +51,50 @@ router.post("/login", async (req, res) => {
   return res.json({ token });
 });
 
+router.put("/profile", authRequired, async (req, res) => {
+  const { currentPassword, newUsername, newPassword } = req.body;
+
+  if (!currentPassword) {
+    return res.status(400).json({ message: "Current password is required" });
+  }
+
+  const admin = await Admin.findOne({ username: req.admin.username });
+  if (!admin) {
+    return res.status(404).json({ message: "Admin not found" });
+  }
+
+  const match = await bcrypt.compare(currentPassword, admin.passwordHash);
+  if (!match) {
+    return res.status(401).json({ message: "Current password is incorrect" });
+  }
+
+  // Update username if provided and different
+  if (newUsername && newUsername.trim() && newUsername.trim() !== admin.username) {
+    const existing = await Admin.findOne({ username: newUsername.trim() });
+    if (existing && existing._id.toString() !== admin._id.toString()) {
+      return res.status(400).json({ message: "Username already taken" });
+    }
+    admin.username = newUsername.trim();
+  }
+
+  // Update password if provided
+  if (newPassword && newPassword.trim()) {
+    admin.passwordHash = await bcrypt.hash(newPassword.trim(), 10);
+  }
+
+  await admin.save();
+
+  const token = jwt.sign({ username: admin.username }, process.env.JWT_SECRET || "secret", {
+    expiresIn: "12h",
+  });
+
+  return res.json({
+    message: "Credentials updated",
+    token,
+    username: admin.username,
+  });
+});
+
 router.get("/handles", authRequired, async (req, res) => {
   const handles = await Handle.find().sort({ createdAt: -1 });
   return res.json(handles);

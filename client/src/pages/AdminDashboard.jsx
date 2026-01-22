@@ -14,12 +14,67 @@ import {
   updateVjudgeTeam,
   updateVjudgeConfig,
   updateVjudgeContest,
+  updateAdminCredentials,
 } from "../api.js";
 
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState("individual");
   const [handles, setHandles] = useState([]);
   const [newHandle, setNewHandle] = useState("");
+
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div>
+            <h2>Admin Account</h2>
+            <p className="card-subtitle">Update username or password</p>
+          </div>
+          {credMessage && <span className="notice success" style={{ marginLeft: 12 }}>{credMessage}</span>}
+          {credError && <span className="notice error" style={{ marginLeft: 12 }}>{credError}</span>}
+        </div>
+        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+          <div className="field">
+            <label>Current Password</label>
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Enter current password"
+            />
+          </div>
+          <div className="field">
+            <label>New Username (optional)</label>
+            <input
+              type="text"
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              placeholder="New username"
+            />
+          </div>
+          <div className="field">
+            <label>New Password (optional)</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="New password"
+            />
+          </div>
+          <div className="field">
+            <label>Confirm New Password</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Confirm new password"
+            />
+          </div>
+        </div>
+        <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+          <button className="btn primary" onClick={handleUpdateCredentials}>
+            Update Credentials
+          </button>
+        </div>
+      </div>
   const [newName, setNewName] = useState("");
   const [newRoll, setNewRoll] = useState("");
   const [newBatch, setNewBatch] = useState("");
@@ -45,6 +100,12 @@ const AdminDashboard = () => {
   const [editingContestValue, setEditingContestValue] = useState("");
   const [editingContestTitle, setEditingContestTitle] = useState("");
   const [editingContestEnabled, setEditingContestEnabled] = useState(true);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [credMessage, setCredMessage] = useState("");
+  const [credError, setCredError] = useState("");
 
   const handleAuthError = (err) => {
     if (err?.response?.status === 401) {
@@ -169,6 +230,39 @@ const AdminDashboard = () => {
       loadVjudge();
     } catch (err) {
       setError("Unable to add team");
+    }
+  };
+
+  const handleUpdateCredentials = async () => {
+    setCredMessage("");
+    setCredError("");
+    if (!currentPassword.trim()) {
+      setCredError("Current password is required");
+      return;
+    }
+    if (newPassword && newPassword !== confirmPassword) {
+      setCredError("New passwords do not match");
+      return;
+    }
+    try {
+      const payload = {
+        currentPassword: currentPassword.trim(),
+        newUsername: newUsername.trim() || undefined,
+        newPassword: newPassword.trim() || undefined,
+      };
+      const data = await updateAdminCredentials(payload);
+      if (data?.token) {
+        localStorage.setItem("sgipc_token", data.token);
+      }
+      setCredMessage("Credentials updated successfully");
+      setCurrentPassword("");
+      setNewUsername("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      if (handleAuthError(err)) return;
+      const msg = err?.response?.data?.message || "Unable to update credentials";
+      setCredError(msg);
     }
   };
 

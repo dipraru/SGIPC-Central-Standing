@@ -197,12 +197,12 @@ router.get("/standings", async (req, res) => {
           let metaLatest = await HandleMeta.findOne({ handle: entry.handle }).lean();
           const currentRating = historyMap.get(todayKey)?.rating ?? metaLatest?.currentRating ?? 1000;
           let solvedCount = metaLatest?.totalSolved ?? totalSolved;
-          let resolvedMaxRating = maxRating;
+          let resolvedMaxRating = maxRating || metaLatest?.maxRating || 0;
 
           if (!metaLatest || solvedCount === 0) {
             // Use cached data if available, only fetch if absolutely necessary
             solvedCount = metaLatest?.totalSolved || 0;
-            resolvedMaxRating = metaLatest?.maxRating || 0;
+            resolvedMaxRating = metaLatest?.maxRating || resolvedMaxRating || 0;
             
             if (solvedCount === 0) {
               const userInfo = await getUserInfo(entry.handle);
@@ -221,6 +221,21 @@ router.get("/standings", async (req, res) => {
                 { upsert: true, new: true }
               ).lean();
             }
+          }
+          if (resolvedMaxRating === 0) {
+            const userInfo = await getUserInfo(entry.handle);
+            resolvedMaxRating = userInfo.maxRating || 0;
+            metaLatest = await HandleMeta.findOneAndUpdate(
+              { handle: entry.handle },
+              {
+                handle: entry.handle,
+                lastUpdateDate: metaLatest?.lastUpdateDate ?? todayKey,
+                currentRating,
+                maxRating: resolvedMaxRating,
+                totalSolved: solvedCount,
+              },
+              { upsert: true, new: true }
+            ).lean();
           }
           return {
             id: entry._id,
@@ -276,15 +291,31 @@ router.get("/standings", async (req, res) => {
               };
             })
             .reverse();
-          const metaLatest = await HandleMeta.findOne({ handle: entry.handle }).lean();
+          let metaLatest = await HandleMeta.findOne({ handle: entry.handle }).lean();
           const currentRating = historyMap.get(todayKey)?.rating ?? metaLatest?.currentRating ?? 1000;
+          let resolvedMaxRating = metaLatest?.maxRating ?? 0;
+          if (resolvedMaxRating === 0) {
+            const userInfo = await getUserInfo(entry.handle);
+            resolvedMaxRating = userInfo.maxRating || 0;
+            metaLatest = await HandleMeta.findOneAndUpdate(
+              { handle: entry.handle },
+              {
+                handle: entry.handle,
+                lastUpdateDate: metaLatest?.lastUpdateDate ?? todayKey,
+                currentRating,
+                maxRating: resolvedMaxRating,
+                totalSolved: metaLatest?.totalSolved ?? 0,
+              },
+              { upsert: true, new: true }
+            ).lean();
+          }
           return {
             id: entry._id,
             handle: entry.handle,
             name: entry.name || "",
             roll: entry.roll || "",
             batch: entry.batch || "",
-            maxRating: metaLatest?.maxRating ?? 0,
+            maxRating: resolvedMaxRating || metaLatest?.maxRating || 0,
             solvedCount: metaLatest?.totalSolved ?? 0,
             standingRating: currentRating,
             recentStats: historyStats,

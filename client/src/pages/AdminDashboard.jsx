@@ -52,7 +52,8 @@ const AdminDashboard = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [credMessage, setCredMessage] = useState("");
   const [credError, setCredError] = useState("");
-  const [showCredentials, setShowCredentials] = useState(false);
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
+  const [credentialTab, setCredentialTab] = useState("username");
 
   const handleAuthError = (err) => {
     if (err?.response?.status === 401) {
@@ -180,37 +181,90 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleUpdateCredentials = async () => {
+  const handleUpdateUsername = async () => {
     setCredMessage("");
     setCredError("");
     if (!currentPassword.trim()) {
       setCredError("Current password is required");
       return;
     }
-    if (newPassword && newPassword !== confirmPassword) {
+    if (!newUsername.trim()) {
+      setCredError("New username is required");
+      return;
+    }
+    try {
+      const payload = {
+        currentPassword: currentPassword.trim(),
+        newUsername: newUsername.trim(),
+      };
+      const data = await updateAdminCredentials(payload);
+      if (data?.token) {
+        localStorage.setItem("sgipc_token", data.token);
+      }
+      setCredMessage("Username updated successfully");
+      setCurrentPassword("");
+      setNewUsername("");
+    } catch (err) {
+      if (handleAuthError(err)) return;
+      const msg = err?.response?.data?.message || "Unable to update username";
+      setCredError(msg);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    setCredMessage("");
+    setCredError("");
+    if (!currentPassword.trim()) {
+      setCredError("Current password is required");
+      return;
+    }
+    if (!newPassword.trim()) {
+      setCredError("New password is required");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
       setCredError("New passwords do not match");
       return;
     }
     try {
       const payload = {
         currentPassword: currentPassword.trim(),
-        newUsername: newUsername.trim() || undefined,
-        newPassword: newPassword.trim() || undefined,
+        newPassword: newPassword.trim(),
       };
       const data = await updateAdminCredentials(payload);
       if (data?.token) {
         localStorage.setItem("sgipc_token", data.token);
       }
-      setCredMessage("Credentials updated successfully");
+      setCredMessage("Password updated successfully");
       setCurrentPassword("");
-      setNewUsername("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (err) {
       if (handleAuthError(err)) return;
-      const msg = err?.response?.data?.message || "Unable to update credentials";
+      const msg = err?.response?.data?.message || "Unable to update password";
       setCredError(msg);
     }
+  };
+
+  const openCredentialsModal = () => {
+    setShowCredentialsModal(true);
+    setCredentialTab("username");
+    setCredMessage("");
+    setCredError("");
+    setCurrentPassword("");
+    setNewUsername("");
+    setNewPassword("");
+    setConfirmPassword("");
+  };
+
+  const closeCredentialsModal = () => {
+    setShowCredentialsModal(false);
+    setCredMessage("");
+    setCredError("");
+    setCurrentPassword("");
+    setNewUsername("");
+    setNewPassword("");
+    setConfirmPassword("");
   };
 
   const handleDeleteTeam = async (id) => {
@@ -347,79 +401,18 @@ const AdminDashboard = () => {
             <h1>Manage SGIPC Platform</h1>
             <p>Configure handles, teams, and contest settings</p>
           </div>
-          <button className="secondary" onClick={logout} style={{ height: "fit-content" }}>
-            Logout
-          </button>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <button className="btn secondary" onClick={openCredentialsModal} style={{ height: "fit-content" }}>
+              Change Credentials
+            </button>
+            <button className="btn secondary" onClick={logout} style={{ height: "fit-content" }}>
+              Logout
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-          <div>
-            <h2>Admin Account</h2>
-            <p className="card-subtitle">Update username or password</p>
-          </div>
-          <button
-            className="btn secondary"
-            onClick={() => setShowCredentials((prev) => !prev)}
-            style={{ whiteSpace: "nowrap" }}
-          >
-            {showCredentials ? "Hide" : "Change Credentials"}
-          </button>
-        </div>
 
-        {showCredentials && (
-          <div style={{ marginTop: 16 }}>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-              {credMessage && <span className="notice success">{credMessage}</span>}
-              {credError && <span className="notice error">{credError}</span>}
-            </div>
-            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-              <div className="field">
-                <label>Current Password</label>
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Enter current password"
-                />
-              </div>
-              <div className="field">
-                <label>New Username (optional)</label>
-                <input
-                  type="text"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="New username"
-                />
-              </div>
-              <div className="field">
-                <label>New Password (optional)</label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="New password"
-                />
-              </div>
-              <div className="field">
-                <label>Confirm New Password</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm new password"
-                />
-              </div>
-            </div>
-            <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button className="btn primary" onClick={handleUpdateCredentials}>
-                Update Credentials
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
 
       <div className="tabs" style={{ marginBottom: "24px" }}>
         <button
@@ -934,6 +927,108 @@ const AdminDashboard = () => {
             </div>
             <div className="modal-footer">
               <button className="secondary" onClick={closeModal}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credentials Modal */}
+      {showCredentialsModal && (
+        <div className="modal-overlay" onClick={closeCredentialsModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Change Credentials</h2>
+              <button className="modal-close" onClick={closeCredentialsModal}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="tabs" style={{ marginBottom: 16 }}>
+                <button
+                  className={`tab ${credentialTab === "username" ? "active" : ""}`}
+                  onClick={() => setCredentialTab("username")}
+                >
+                  Change Username
+                </button>
+                <button
+                  className={`tab ${credentialTab === "password" ? "active" : ""}`}
+                  onClick={() => setCredentialTab("password")}
+                >
+                  Change Password
+                </button>
+              </div>
+
+              {credMessage && <div className="notice success" style={{ marginBottom: 12 }}>{credMessage}</div>}
+              {credError && <div className="notice error" style={{ marginBottom: 12 }}>{credError}</div>}
+
+              {credentialTab === "username" && (
+                <div>
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <label>Current Password</label>
+                    <input
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Enter current password"
+                    />
+                  </div>
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <label>New Username</label>
+                    <input
+                      type="text"
+                      value={newUsername}
+                      onChange={(e) => setNewUsername(e.target.value)}
+                      placeholder="Enter new username"
+                    />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                    <button className="btn secondary" onClick={closeCredentialsModal}>
+                      Cancel
+                    </button>
+                    <button className="btn primary" onClick={handleUpdateUsername}>
+                      Update Username
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {credentialTab === "password" && (
+                <div>
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <label>Current Password</label>
+                    <input
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Enter current password"
+                    />
+                  </div>
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <label>New Password</label>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter new password"
+                    />
+                  </div>
+                  <div className="field" style={{ marginBottom: 12 }}>
+                    <label>Confirm New Password</label>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password"
+                    />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                    <button className="btn secondary" onClick={closeCredentialsModal}>
+                      Cancel
+                    </button>
+                    <button className="btn primary" onClick={handleUpdatePassword}>
+                      Update Password
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

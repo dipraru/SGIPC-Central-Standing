@@ -46,6 +46,8 @@ const AdminDashboard = () => {
   const [editingContestValue, setEditingContestValue] = useState("");
   const [editingContestTitle, setEditingContestTitle] = useState("");
   const [editingContestEnabled, setEditingContestEnabled] = useState(true);
+  const [isAddingHandle, setIsAddingHandle] = useState(false);
+  const [handleAddSuccess, setHandleAddSuccess] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -101,7 +103,10 @@ const AdminDashboard = () => {
 
   const handleCreate = async () => {
     if (!newHandle.trim()) return;
+    if (isAddingHandle) return;
     try {
+      setIsAddingHandle(true);
+      setHandleAddSuccess(false);
       await createHandle({ 
         handle: newHandle.trim(),
         name: newName.trim(),
@@ -113,9 +118,13 @@ const AdminDashboard = () => {
       setNewRoll("");
       setNewBatch("");
       loadHandles();
+      setHandleAddSuccess(true);
+      setTimeout(() => setHandleAddSuccess(false), 1500);
     } catch (err) {
       const message = err?.response?.data?.message || "Unable to add handle";
       setError(message);
+    } finally {
+      setIsAddingHandle(false);
     }
   };
 
@@ -476,9 +485,21 @@ const AdminDashboard = () => {
               />
             </div>
           </div>
-          <button className="primary" onClick={handleCreate} style={{ marginBottom: "24px" }}>
-            Add Handle
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+            <button
+              className="primary"
+              onClick={handleCreate}
+              disabled={isAddingHandle}
+            >
+              {isAddingHandle ? "Adding..." : "Add Handle"}
+            </button>
+            {isAddingHandle && (
+              <div className="loading-spinner" style={{ width: 18, height: 18, borderWidth: 2 }}></div>
+            )}
+            {handleAddSuccess && (
+              <span style={{ color: "var(--success)", fontWeight: 600 }}>✓ Done</span>
+            )}
+          </div>
 
         {loading && (
           <div className="empty-state">

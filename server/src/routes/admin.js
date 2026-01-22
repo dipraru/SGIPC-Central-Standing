@@ -124,8 +124,15 @@ router.post("/handles", authRequired, async (req, res) => {
     await refreshHandleData(normalized, { fullHistory: true });
   } catch (error) {
     console.error(`Backfill failed for ${normalized}:`, error);
+    await Promise.all([
+      Handle.deleteOne({ handle: normalized }),
+      DailySolved.deleteMany({ handle: normalized }),
+      PendingProblem.deleteMany({ handle: normalized }),
+      RatingHistory.deleteMany({ handle: normalized }),
+      HandleMeta.deleteMany({ handle: normalized }),
+    ]);
     return res.status(502).json({
-      message: "Handle added, but data refresh failed. Please retry.",
+      message: "Handle add failed due to refresh error. Nothing was saved.",
     });
   }
 

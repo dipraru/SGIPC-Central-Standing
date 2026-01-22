@@ -5,7 +5,7 @@ import { RatingHistory } from "../models/RatingHistory.js";
 import { DailySolved } from "../models/DailySolved.js";
 import { PendingProblem } from "../models/PendingProblem.js";
 import { getSolvedProblems, getUserInfo } from "./codeforces.js";
-import { toLocalDateKey, computeRatingUpTo, calculateEloScore } from "./elo.js";
+import { toLocalDateKey, computeRatingUpTo, startOfLocalDayFromDateKey } from "./elo.js";
 
 // Function to refresh data for a single handle
 export async function refreshHandleData(handle) {
@@ -15,7 +15,7 @@ export async function refreshHandleData(handle) {
     const todayKey = toLocalDateKey(nowSeconds);
     
     // Fetch user info and solved problems
-    const [userInfo, solvedData] = await Promise.all([
+    const [userInfo, solvedProblems] = await Promise.all([
       getUserInfo(handle),
       getSolvedProblems(handle)
     ]);
@@ -29,58 +29,97 @@ export async function refreshHandleData(handle) {
       return;
     }
 
-    // Calculate Elo rating
-    const allHandles = await Handle.find().select("handle").lean();
-    const handleList = allHandles.map((h) => h.handle);
-    const ratingMap = await computeRatingUpTo(handleList, todayKey);
-    const currentRating = ratingMap.get(handle) || 1000;
-
-    // Update HandleMeta
-    await HandleMeta.findOneAndUpdate(
-      { handle },
-      {
-        handle,
-        maxRating: userInfo.maxRating,
-        totalSolved: solvedData.solvedCount,
-        currentRating,
-        lastUpdateDate: todayKey,
-      },
-      { upsert: true, new: true }
-    );
-
-    // Store today's solved problems
-    const todayProblems = solvedData.recentByDate.get(todayKey) || [];
-    if (todayProblems.length > 0) {
-      await DailySolved.findOneAndUpdate(
-        { handle, date: todayKey },
-        { handle, date: todayKey, problems: todayProblems },
-        { upsert: true }
-      );
-    }
+    const totalSolved = solvedProblems.length;
 
     // Update rating history for last 6 days
     const lastSixDates = Array.from({ length: 6 }, (_, i) =>
       toLocalDateKey(nowSeconds - (5 - i) * 86400)
     );
+    const lastFiveDates = lastSixDates.slice(1);
 
-    for (const dateKey of lastSixDates) {
-      const dayStart = Math.floor(Date.now() / 1000) - (5 - lastSixDates.indexOf(dateKey)) * 86400;
-      const ratingForDate = (await computeRatingUpTo(handleList, dateKey)).get(handle) || 1000;
-      const prevDateKey = lastSixDates[lastSixDates.indexOf(dateKey) - 1];
-      const prevRating = prevDateKey ? ((await computeRatingUpTo(handleList, prevDateKey)).get(handle) || 1000) : 1000;
-      
-      await RatingHistory.findOneAndUpdate(
-        { handle, date: dateKey },
-        {
-          handle,
-          date: dateKey,
-          fromRating: prevRating,
-          toRating: ratingForDate,
-          delta: ratingForDate - prevRating,
-        },
-        { upsert: true }
-      );
+    const dailySolvedMap = new Map(lastFiveDates.map((dateKey) => [dateKey, []]));
+    const pendingMap = new Map();
+
+    for (const problem of solvedProblems) {
+      if (!problem.solvedAtSeconds || problem.isGym) {
+        continue;
+      }
+      const dateKey = toLocalDateKey(problem.solvedAtSeconds);
+      const daysAgo = Math.floor((nowSeconds - problem.solvedAtSeconds) / 86400);
+
+      if (!problem.rating) {
+        if (daysAgo <= 30) {
+          pendingMap.set(`${problem.contestId}-${problem.index}`, {
+            handle,
+            date: dateKey,
+            contestId: problem.contestId,
+            index: problem.index,
+            name: problem.name,
+            solvedAtSeconds: problem.solvedAtSeconds,
+          });
+        }
+        continue;
+      }
+
+      if (dailySolvedMap.has(dateKey)) {
+        dailySolvedMap.get(dateKey).push({
+          contestId: problem.contestId,
+          index: problem.index,
+          name: problem.name,
+          rating: problem.rating,
+        });
+      }
     }
+
+    await DailySolved.deleteMany({ handle, date: { $nin: lastFiveDates } });
+    await Promise.all(
+      lastFiveDates.map((dateKey) =>
+        DailySolved.findOneAndUpdate(
+          { handle, date: dateKey },
+          { handle, date: dateKey, problems: dailySolvedMap.get(dateKey) || [] },
+          { upsert: true, new: true }
+        )
+      )
+    );
+
+    await PendingProblem.deleteMany({ handle, date: { $lt: lastSixDates[0] } });
+    await PendingProblem.deleteMany({ handle });
+    if (pendingMap.size > 0) {
+      await PendingProblem.insertMany(Array.from(pendingMap.values()));
+    }
+
+    const historyMap = new Map();
+    for (const dateKey of lastSixDates) {
+      const endSeconds =
+        dateKey === todayKey
+          ? nowSeconds
+          : startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
+      const ratingForDate = computeRatingUpTo({
+        maxRating: userInfo.maxRating,
+        solvedProblems,
+        dayEndSeconds: endSeconds,
+      });
+      const created = await RatingHistory.findOneAndUpdate(
+        { handle, date: dateKey },
+        { handle, date: dateKey, rating: ratingForDate },
+        { upsert: true, new: true }
+      ).lean();
+      historyMap.set(dateKey, created);
+    }
+
+    const currentRating = historyMap.get(todayKey)?.rating ?? 1000;
+
+    await HandleMeta.findOneAndUpdate(
+      { handle },
+      {
+        handle,
+        maxRating: userInfo.maxRating,
+        totalSolved,
+        currentRating,
+        lastUpdateDate: todayKey,
+      },
+      { upsert: true, new: true }
+    );
 
     // Clean old data (older than 7 days)
     const sevenDaysAgo = toLocalDateKey(nowSeconds - 7 * 86400);

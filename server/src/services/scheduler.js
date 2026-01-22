@@ -5,7 +5,7 @@ import { RatingHistory } from "../models/RatingHistory.js";
 import { DailySolved } from "../models/DailySolved.js";
 import { PendingProblem } from "../models/PendingProblem.js";
 import { getSolvedProblems, getUserInfo } from "./codeforces.js";
-import { toLocalDateKey, computeRatingUpTo, startOfLocalDayFromDateKey } from "./elo.js";
+import { toLocalDateKey, computeRatingUpTo } from "./elo.js";
 
 // Function to refresh data for a single handle
 export async function refreshHandleData(handle) {
@@ -23,10 +23,8 @@ export async function refreshHandleData(handle) {
     // Update meta information
     const existingMeta = await HandleMeta.findOne({ handle }).lean();
     const lastUpdateDate = existingMeta?.lastUpdateDate || "";
-    
     if (lastUpdateDate === todayKey) {
-      console.log(`Handle ${handle} already updated today`);
-      return;
+      console.log(`Handle ${handle} already updated today; refreshing today's rating`);
     }
 
     const totalSolved = solvedProblems.length;
@@ -88,26 +86,20 @@ export async function refreshHandleData(handle) {
       await PendingProblem.insertMany(Array.from(pendingMap.values()));
     }
 
-    const historyMap = new Map();
-    for (const dateKey of lastSixDates) {
-      const endSeconds =
-        dateKey === todayKey
-          ? nowSeconds
-          : startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
-      const ratingForDate = computeRatingUpTo({
-        maxRating: userInfo.maxRating,
-        solvedProblems,
-        dayEndSeconds: endSeconds,
-      });
-      const created = await RatingHistory.findOneAndUpdate(
-        { handle, date: dateKey },
-        { handle, date: dateKey, rating: ratingForDate },
-        { upsert: true, new: true }
-      ).lean();
-      historyMap.set(dateKey, created);
-    }
+    // Only compute today's rating; keep previous days as-is
+    const todayRating = computeRatingUpTo({
+      maxRating: userInfo.maxRating,
+      solvedProblems,
+      dayEndSeconds: nowSeconds,
+    });
 
-    const currentRating = historyMap.get(todayKey)?.rating ?? 1000;
+    await RatingHistory.findOneAndUpdate(
+      { handle, date: todayKey },
+      { handle, date: todayKey, rating: todayRating },
+      { upsert: true, new: true }
+    );
+
+    const currentRating = todayRating ?? 1000;
 
     await HandleMeta.findOneAndUpdate(
       { handle },
@@ -121,12 +113,12 @@ export async function refreshHandleData(handle) {
       { upsert: true, new: true }
     );
 
-    // Clean old data (older than 7 days)
-    const sevenDaysAgo = toLocalDateKey(nowSeconds - 7 * 86400);
+    // Clean old data (keep last 6 days)
+    const oldestKeptDate = lastSixDates[0];
     await Promise.all([
-      DailySolved.deleteMany({ handle, date: { $lt: sevenDaysAgo } }),
-      RatingHistory.deleteMany({ handle, date: { $lt: sevenDaysAgo } }),
-      PendingProblem.deleteMany({ handle, date: { $lt: sevenDaysAgo } })
+      DailySolved.deleteMany({ handle, date: { $lt: oldestKeptDate } }),
+      RatingHistory.deleteMany({ handle, date: { $lt: oldestKeptDate } }),
+      PendingProblem.deleteMany({ handle, date: { $lt: oldestKeptDate } })
     ]);
 
     console.log(`Successfully refreshed data for handle: ${handle}`);
@@ -149,11 +141,10 @@ export async function refreshAllHandles() {
 
 // Schedule daily refresh at midnight (00:00)
 export function startScheduler() {
-  // Run at midnight every day
-  cron.schedule("0 0 * * *", async () => {
-    console.log("Running scheduled daily refresh at midnight");
-    await refreshAllHandles();
-  });
-  
-  console.log("Scheduler started: Daily refresh at 00:00");
+  // Run once at server start
+  console.log("Running one-time refresh at server start");
+  refreshAllHandles().catch((error) =>
+    console.error("One-time refresh failed:", error)
+  );
+  console.log("Scheduler started: One-time refresh");
 }

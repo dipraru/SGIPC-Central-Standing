@@ -35,6 +35,14 @@ export const getSolvedProblems = async (handle) => {
     if (submission.verdict !== "OK") {
       continue;
     }
+    const problemsetName = submission.problem?.problemsetName;
+    const contestId = submission.problem?.contestId;
+    const isGym =
+      problemsetName === "gym" ||
+      (Number.isFinite(contestId) && contestId >= 100000);
+    if (isGym) {
+      continue;
+    }
     const problem = submission.problem;
     const key = `${problem.contestId}-${problem.index}`;
     const solvedAtSeconds = submission.creationTimeSeconds;
@@ -45,6 +53,8 @@ export const getSolvedProblems = async (handle) => {
         contestId: problem.contestId,
         index: problem.index,
         solvedAtSeconds,
+        isRated: Boolean(problem.rating),
+        isGym,
       });
     } else {
       const existing = solved.get(key);

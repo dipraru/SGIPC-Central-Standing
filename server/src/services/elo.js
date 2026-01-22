@@ -31,12 +31,47 @@ const getEloDelta = ({ current, opponent, maxRating, timeWeight }) => {
   return k * (1 - expected) * ratingMultiplier * timeWeight;
 };
 
+export const computeRatingUpTo = ({ maxRating, solvedProblems, dayEndSeconds }) => {
+  const safeMax = Number.isFinite(maxRating) ? maxRating : 0;
+  const windowStart = dayEndSeconds - THIRTY_DAYS * 86400;
+  const scoped = solvedProblems
+    .filter(
+      (problem) =>
+        problem.rating &&
+        problem.solvedAtSeconds &&
+        problem.solvedAtSeconds >= windowStart &&
+        problem.solvedAtSeconds <= dayEndSeconds
+    )
+    .sort((a, b) => a.solvedAtSeconds - b.solvedAtSeconds);
+
+  let current = 1000;
+  for (const problem of scoped) {
+    const daysAgo = daysBetween(problem.solvedAtSeconds, dayEndSeconds);
+    const timeWeight = getTimeWeight(daysAgo);
+    if (timeWeight <= 0) {
+      continue;
+    }
+    const delta = getEloDelta({
+      current,
+      opponent: problem.rating,
+      maxRating: safeMax,
+      timeWeight,
+    });
+    current += delta;
+  }
+
+  return Math.round(current);
+};
+
 export const calculateEloScore = ({ maxRating, solvedProblems }) => {
   let current = 1000;
   const safeMax = Number.isFinite(maxRating) ? maxRating : 0;
   const nowSeconds = Math.floor(Date.now() / 1000);
+  const ordered = [...solvedProblems].sort(
+    (a, b) => (a.solvedAtSeconds || 0) - (b.solvedAtSeconds || 0)
+  );
 
-  for (const problem of solvedProblems) {
+  for (const problem of ordered) {
     if (!problem.rating || !problem.solvedAtSeconds) {
       continue;
     }
@@ -71,6 +106,7 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
       date: dateKey,
       dayStartSeconds: startOfDaySeconds(daySeconds),
       problems: [],
+      pendingCount: 0,
       delta: 0,
       rating: 1000,
       fromRating: 1000,
@@ -81,7 +117,7 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
   const dayMap = new Map(recentDays.map((day) => [day.date, day]));
 
   for (const problem of solvedProblems) {
-    if (!problem.rating || !problem.solvedAtSeconds) {
+    if (!problem.solvedAtSeconds) {
       continue;
     }
     const daysAgo = daysBetween(problem.solvedAtSeconds, nowSeconds);
@@ -95,6 +131,14 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
     if (!dayBucket) {
       continue;
     }
+
+    if (!problem.rating) {
+      if (daysBetween(problem.solvedAtSeconds, nowSeconds) <= THIRTY_DAYS) {
+        dayBucket.pendingCount += 1;
+      }
+      continue;
+    }
+
     dayBucket.problems.push({
       name: problem.name,
       rating: problem.rating,
@@ -104,9 +148,9 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
     });
   }
 
-  const computeRatingForDay = (dayStartSeconds) => {
+  const computeRatingForDay = ({ dayStartSeconds, dayEndSeconds }) => {
     const windowStart = dayStartSeconds - THIRTY_DAYS * 86400;
-    const windowEnd = dayStartSeconds + 86400;
+    const windowEnd = dayEndSeconds;
     const scoped = solvedProblems
       .filter(
         (problem) =>
@@ -119,7 +163,7 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
 
     let current = 1000;
     for (const problem of scoped) {
-      const daysAgo = daysBetween(problem.solvedAtSeconds, dayStartSeconds);
+      const daysAgo = daysBetween(problem.solvedAtSeconds, dayEndSeconds);
       const timeWeight = getTimeWeight(daysAgo);
       if (timeWeight <= 0) {
         continue;
@@ -136,7 +180,13 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
   };
 
   for (const day of recentDays) {
-    day.rating = computeRatingForDay(day.dayStartSeconds);
+    const dayEndSeconds = day.date === new Date(nowSeconds * 1000).toISOString().slice(0, 10)
+      ? nowSeconds
+      : day.dayStartSeconds + 86400;
+    day.rating = computeRatingForDay({
+      dayStartSeconds: day.dayStartSeconds,
+      dayEndSeconds,
+    });
     day.problems = day.problems
       .sort((a, b) => a.solvedAtSeconds - b.solvedAtSeconds)
       .map(({ solvedAtSeconds, ...rest }) => rest);
@@ -146,7 +196,10 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
     const today = recentDays[i];
     const fromRating =
       i === 0
-        ? computeRatingForDay(today.dayStartSeconds - 86400)
+        ? computeRatingForDay({
+            dayStartSeconds: today.dayStartSeconds - 86400,
+            dayEndSeconds: today.dayStartSeconds,
+          })
         : recentDays[i - 1].rating;
     const toRating = today.rating;
     today.fromRating = fromRating;
@@ -154,7 +207,9 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
     today.delta = toRating - fromRating;
   }
 
-  return recentDays
+  const days = recentDays
     .reverse()
     .map(({ dayStartSeconds, rating, ...rest }) => rest);
+
+  return { days };
 };

@@ -146,6 +146,9 @@ const Standings = () => {
                                   ))}
                                 </ul>
                               )}
+                              <p className="day-empty">
+                                Pending rating problems: {day.pendingCount ?? 0}
+                              </p>
                             </div>
                           ))}
                         </div>

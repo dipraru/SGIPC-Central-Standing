@@ -75,12 +75,8 @@ const Standings = () => {
       }
     };
     loadTeamStandings();
-    const interval = setInterval(() => {
-      if (active) loadTeamStandings();
-    }, 20000);
     return () => {
       active = false;
-      clearInterval(interval);
     };
   }, []);
 
@@ -101,9 +97,6 @@ const Standings = () => {
             <span className="updated">Updated {lastUpdated.toLocaleTimeString()}</span>
           )}
         </div>
-        <a className="link" href="/admin">
-          Admin Login
-        </a>
       </div>
 
       <div className="card">

@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { VjudgeContest } from "../models/VjudgeContest.js";
 import { VjudgeTeam } from "../models/VjudgeTeam.js";
 import { VjudgeConfig } from "../models/VjudgeConfig.js";
+import { fetchContestRank } from "../services/vjudge.js";
 
 const router = express.Router();
 
@@ -38,6 +39,29 @@ router.post("/vjudge/teams", authRequired, async (req, res) => {
   return res.status(201).json(created);
 });
 
+router.patch("/vjudge/teams/:id", authRequired, async (req, res) => {
+  const { name, aliases } = req.body;
+  if (!name) {
+    return res.status(400).json({ message: "Team name is required" });
+  }
+  const normalized = name.trim();
+  const aliasList = Array.isArray(aliases)
+    ? aliases
+    : String(aliases || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+  const updated = await VjudgeTeam.findByIdAndUpdate(
+    req.params.id,
+    { name: normalized, aliases: aliasList },
+    { new: true }
+  );
+  if (!updated) {
+    return res.status(404).json({ message: "Team not found" });
+  }
+  return res.json(updated);
+});
+
 router.delete("/vjudge/teams/:id", authRequired, async (req, res) => {
   const deleted = await VjudgeTeam.findByIdAndDelete(req.params.id);
   if (!deleted) {
@@ -60,19 +84,46 @@ router.post("/vjudge/contests", authRequired, async (req, res) => {
   if (!Number.isFinite(numericId)) {
     return res.status(400).json({ message: "Contest ID must be a number" });
   }
+  let resolvedTitle = String(title || "").trim();
+  if (!resolvedTitle) {
+    const data = await fetchContestRank(numericId);
+    resolvedTitle = String(data?.title || "").trim();
+    if (!resolvedTitle) {
+      return res.status(400).json({ message: "Contest name is required" });
+    }
+  }
   const created = await VjudgeContest.create({
     contestId: numericId,
-    title: title || "",
+    title: resolvedTitle,
     enabled: enabled !== false,
   });
   return res.status(201).json(created);
 });
 
 router.patch("/vjudge/contests/:id", authRequired, async (req, res) => {
-  const { enabled } = req.body;
+  const { enabled, contestId, title } = req.body;
+  if (!contestId) {
+    return res.status(400).json({ message: "Contest ID is required" });
+  }
+  const numericId = Number(contestId);
+  if (!Number.isFinite(numericId)) {
+    return res.status(400).json({ message: "Contest ID must be a number" });
+  }
+  let resolvedTitle = String(title || "").trim();
+  if (!resolvedTitle) {
+    const data = await fetchContestRank(numericId);
+    resolvedTitle = String(data?.title || "").trim();
+    if (!resolvedTitle) {
+      return res.status(400).json({ message: "Contest name is required" });
+    }
+  }
   const updated = await VjudgeContest.findByIdAndUpdate(
     req.params.id,
-    { enabled: Boolean(enabled) },
+    {
+      contestId: numericId,
+      title: resolvedTitle,
+      enabled: Boolean(enabled),
+    },
     { new: true }
   );
   if (!updated) {

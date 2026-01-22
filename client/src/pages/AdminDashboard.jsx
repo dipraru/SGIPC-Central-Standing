@@ -10,6 +10,7 @@ import {
   getVjudgeConfig,
   getVjudgeContests,
   getVjudgeTeams,
+  updateVjudgeTeam,
   updateVjudgeConfig,
   updateVjudgeContest,
 } from "../api.js";
@@ -21,10 +22,18 @@ const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [teamName, setTeamName] = useState("");
   const [teamAliases, setTeamAliases] = useState("");
-  const [contestIdsInput, setContestIdsInput] = useState("");
+  const [contestIdInput, setContestIdInput] = useState("");
+  const [contestTitleInput, setContestTitleInput] = useState("");
   const [vjudgeTeams, setVjudgeTeams] = useState([]);
   const [vjudgeContests, setVjudgeContests] = useState([]);
   const [vjudgeConfig, setVjudgeConfig] = useState({ eloMode: "normal" });
+  const [editingTeamId, setEditingTeamId] = useState(null);
+  const [editingTeamName, setEditingTeamName] = useState("");
+  const [editingTeamAliases, setEditingTeamAliases] = useState("");
+  const [editingContestId, setEditingContestId] = useState(null);
+  const [editingContestValue, setEditingContestValue] = useState("");
+  const [editingContestTitle, setEditingContestTitle] = useState("");
+  const [editingContestEnabled, setEditingContestEnabled] = useState(true);
 
   const handleAuthError = (err) => {
     if (err?.response?.status === 401) {
@@ -116,30 +125,59 @@ const AdminDashboard = () => {
   };
 
   const handleAddContest = async () => {
-    const entries = contestIdsInput
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-    if (entries.length === 0) return;
-    const invalid = entries.filter((item) => !Number.isFinite(Number(item)));
-    if (invalid.length > 0) {
-      setError(`Invalid contest IDs: ${invalid.join(", ")}`);
+    if (!Number.isFinite(Number(contestIdInput.trim()))) {
+      setError("Contest ID must be a number");
       return;
     }
     try {
-      for (const entry of entries) {
-        await createVjudgeContest({ contestId: entry });
-      }
-      setContestIdsInput("");
+      await createVjudgeContest({
+        contestId: contestIdInput.trim(),
+        title: contestTitleInput.trim(),
+      });
+      setContestIdInput("");
+      setContestTitleInput("");
       loadVjudge();
     } catch (err) {
       setError("Unable to add contest");
     }
   };
 
+  const startTeamEdit = (team) => {
+    setEditingTeamId(team._id);
+    setEditingTeamName(team.name || "");
+    setEditingTeamAliases((team.aliases || []).join(", "));
+  };
+
+  const cancelTeamEdit = () => {
+    setEditingTeamId(null);
+    setEditingTeamName("");
+    setEditingTeamAliases("");
+  };
+
+  const handleUpdateTeam = async (teamId) => {
+    if (!editingTeamName.trim()) {
+      setError("Team name is required");
+      return;
+    }
+    try {
+      await updateVjudgeTeam(teamId, {
+        name: editingTeamName.trim(),
+        aliases: editingTeamAliases,
+      });
+      cancelTeamEdit();
+      loadVjudge();
+    } catch (err) {
+      setError("Unable to update team");
+    }
+  };
+
   const handleToggleContest = async (contest) => {
     try {
-      await updateVjudgeContest(contest._id, { enabled: !contest.enabled });
+      await updateVjudgeContest(contest._id, {
+        contestId: contest.contestId,
+        title: contest.title,
+        enabled: !contest.enabled,
+      });
       loadVjudge();
     } catch (err) {
       setError("Unable to update contest");
@@ -152,6 +190,38 @@ const AdminDashboard = () => {
       loadVjudge();
     } catch (err) {
       setError("Unable to delete contest");
+    }
+  };
+
+  const startContestEdit = (contest) => {
+    setEditingContestId(contest._id);
+    setEditingContestValue(String(contest.contestId || ""));
+    setEditingContestTitle(contest.title || "");
+    setEditingContestEnabled(Boolean(contest.enabled));
+  };
+
+  const cancelContestEdit = () => {
+    setEditingContestId(null);
+    setEditingContestValue("");
+    setEditingContestTitle("");
+    setEditingContestEnabled(true);
+  };
+
+  const handleUpdateContest = async (contestId) => {
+    if (!Number.isFinite(Number(editingContestValue.trim()))) {
+      setError("Contest ID must be a number");
+      return;
+    }
+    try {
+      await updateVjudgeContest(contestId, {
+        contestId: editingContestValue.trim(),
+        title: editingContestTitle.trim(),
+        enabled: editingContestEnabled,
+      });
+      cancelContestEdit();
+      loadVjudge();
+    } catch (err) {
+      setError("Unable to update contest");
     }
   };
 
@@ -281,15 +351,59 @@ const AdminDashboard = () => {
             <tbody>
               {vjudgeTeams.map((team) => (
                 <tr key={team._id}>
-                  <td>{team.name}</td>
-                  <td>{team.aliases?.join(", ") || "-"}</td>
                   <td>
-                    <button
-                      className="primary"
-                      onClick={() => handleDeleteTeam(team._id)}
-                    >
-                      Delete
-                    </button>
+                    {editingTeamId === team._id ? (
+                      <input
+                        type="text"
+                        value={editingTeamName}
+                        onChange={(event) => setEditingTeamName(event.target.value)}
+                      />
+                    ) : (
+                      team.name
+                    )}
+                  </td>
+                  <td>
+                    {editingTeamId === team._id ? (
+                      <input
+                        type="text"
+                        value={editingTeamAliases}
+                        onChange={(event) => setEditingTeamAliases(event.target.value)}
+                      />
+                    ) : (
+                      team.aliases?.join(", ") || "-"
+                    )}
+                  </td>
+                  <td>
+                    <div className="actions">
+                      {editingTeamId === team._id ? (
+                        <>
+                          <button
+                            className="primary"
+                            onClick={() => handleUpdateTeam(team._id)}
+                          >
+                            Save
+                          </button>
+                          <button className="secondary" onClick={cancelTeamEdit}>
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="secondary"
+                            onClick={() => startTeamEdit(team)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="primary"
+                            onClick={() => handleDeleteTeam(team._id)}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -299,14 +413,25 @@ const AdminDashboard = () => {
 
         <div className="vjudge-grid" style={{ marginTop: 20 }}>
           <div>
-            <label className="input-label">Contest IDs</label>
+            <label className="input-label">Contest ID</label>
             <input
               type="text"
-              placeholder="Comma separated IDs (e.g., 123456, 789012)"
-              value={contestIdsInput}
-              onChange={(event) => setContestIdsInput(event.target.value)}
+              placeholder="e.g., 123456"
+              value={contestIdInput}
+              onChange={(event) => setContestIdInput(event.target.value)}
             />
-            <p className="input-help">Add one or more contest IDs at once.</p>
+            <label className="input-label" style={{ marginTop: 12 }}>
+              Contest name
+            </label>
+            <input
+              type="text"
+              placeholder="Contest title"
+              value={contestTitleInput}
+              onChange={(event) => setContestTitleInput(event.target.value)}
+            />
+            <p className="input-help">
+              Optional. Leave blank to fetch the official contest name.
+            </p>
             <button className="primary" onClick={handleAddContest}>
               Add Contest
             </button>
@@ -357,6 +482,7 @@ const AdminDashboard = () => {
             <thead>
               <tr>
                 <th>Contest ID</th>
+                <th>Contest Name</th>
                 <th>Enabled</th>
                 <th>Actions</th>
               </tr>
@@ -364,22 +490,72 @@ const AdminDashboard = () => {
             <tbody>
               {vjudgeContests.map((contest) => (
                 <tr key={contest._id}>
-                  <td>{contest.contestId}</td>
+                  <td>
+                    {editingContestId === contest._id ? (
+                      <input
+                        type="text"
+                        value={editingContestValue}
+                        onChange={(event) =>
+                          setEditingContestValue(event.target.value)
+                        }
+                      />
+                    ) : (
+                      contest.contestId
+                    )}
+                  </td>
+                  <td>
+                    {editingContestId === contest._id ? (
+                      <input
+                        type="text"
+                        value={editingContestTitle}
+                        onChange={(event) =>
+                          setEditingContestTitle(event.target.value)
+                        }
+                      />
+                    ) : (
+                      contest.title || "-"
+                    )}
+                  </td>
                   <td>{contest.enabled ? "Yes" : "No"}</td>
                   <td>
                     <div className="actions">
-                      <button
-                        className="secondary"
-                        onClick={() => handleToggleContest(contest)}
-                      >
-                        {contest.enabled ? "Disable" : "Enable"}
-                      </button>
-                      <button
-                        className="primary"
-                        onClick={() => handleDeleteContest(contest._id)}
-                      >
-                        Delete
-                      </button>
+                      {editingContestId === contest._id ? (
+                        <>
+                          <button
+                            className="primary"
+                            onClick={() => handleUpdateContest(contest._id)}
+                          >
+                            Save
+                          </button>
+                          <button
+                            className="secondary"
+                            onClick={cancelContestEdit}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="secondary"
+                            onClick={() => startContestEdit(contest)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="secondary"
+                            onClick={() => handleToggleContest(contest)}
+                          >
+                            {contest.enabled ? "Disable" : "Enable"}
+                          </button>
+                          <button
+                            className="primary"
+                            onClick={() => handleDeleteContest(contest._id)}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

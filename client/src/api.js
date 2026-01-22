@@ -56,6 +56,11 @@ export const createVjudgeTeam = async (payload) => {
   return data;
 };
 
+export const updateVjudgeTeam = async (id, payload) => {
+  const { data } = await api.patch(`/admin/vjudge/teams/${id}`, payload);
+  return data;
+};
+
 export const deleteVjudgeTeam = async (id) => {
   await api.delete(`/admin/vjudge/teams/${id}`);
 };

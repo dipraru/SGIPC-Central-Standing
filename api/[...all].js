@@ -8,6 +8,7 @@ import vjudgeRoutes from "../server/src/routes/vjudge.js";
 import { connectDb } from "../server/src/config/db.js";
 import { Admin } from "../server/src/models/Admin.js";
 import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
 
 // Load environment variables
 dotenv.config();
@@ -35,9 +36,16 @@ async function initializeApp() {
   );
 }
 
-// Health check
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
+// Health check with DB status for testing
+app.get("/api/health", async (req, res) => {
+  try {
+    await initializeApp();
+    const dbState = mongoose.connection.readyState; // 1 means connected
+    res.json({ status: "ok", dbConnected: dbState === 1, dbState });
+  } catch (error) {
+    console.error("Health check error:", error);
+    res.status(500).json({ status: "error", message: error.message });
+  }
 });
 
 app.use("/api/admin", adminRoutes);

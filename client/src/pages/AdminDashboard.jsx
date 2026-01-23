@@ -68,6 +68,7 @@ const AdminDashboard = () => {
   const [credError, setCredError] = useState("");
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
   const [credentialTab, setCredentialTab] = useState("username");
+  const [showPasskeyModal, setShowPasskeyModal] = useState(false);
 
   const handleAuthError = (err) => {
     if (err?.response?.status === 401) {
@@ -315,6 +316,18 @@ const AdminDashboard = () => {
     setConfirmPassword("");
   };
 
+  const openPasskeyModal = () => {
+    setShowPasskeyModal(true);
+    setPasskeyValue("");
+    setPasskeyConfirm("");
+    setPasskeyMessage("");
+  };
+
+  const closePasskeyModal = () => {
+    setShowPasskeyModal(false);
+    setPasskeyMessage("");
+  };
+
   const handleDeleteTeam = async (id) => {
     try {
       await deleteVjudgeTeam(id);
@@ -496,6 +509,9 @@ const AdminDashboard = () => {
           <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
             <button className="btn secondary" onClick={openCredentialsModal} style={{ height: "fit-content" }}>
               Change Credentials
+            </button>
+            <button className="btn secondary" onClick={openPasskeyModal} style={{ height: "fit-content" }}>
+              Change Passkey
             </button>
             <button className="btn secondary" onClick={logout} style={{ height: "fit-content" }}>
               Logout
@@ -1073,35 +1089,6 @@ const AdminDashboard = () => {
             </table>
           )}
 
-          <div style={{ marginTop: 32, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-            <h3 style={{ fontSize: "16px", marginBottom: "12px" }}>Update SGIPC Passkey</h3>
-            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-              <div className="field">
-                <label>New Passkey</label>
-                <input
-                  type="password"
-                  value={passkeyValue}
-                  onChange={(e) => setPasskeyValue(e.target.value)}
-                  placeholder="Enter new passkey"
-                />
-              </div>
-              <div className="field">
-                <label>Confirm Passkey</label>
-                <input
-                  type="password"
-                  value={passkeyConfirm}
-                  onChange={(e) => setPasskeyConfirm(e.target.value)}
-                  placeholder="Confirm new passkey"
-                />
-              </div>
-            </div>
-            {passkeyMessage && (
-              <div className="notice" style={{ marginTop: 12 }}>{passkeyMessage}</div>
-            )}
-            <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
-              <button className="primary" onClick={handleUpdatePasskey}>Update Passkey</button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1244,6 +1231,48 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPasskeyModal && (
+        <div className="modal-overlay" onClick={closePasskeyModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Change SGIPC Passkey</h2>
+              <button className="modal-close" onClick={closePasskeyModal}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+                <div className="field">
+                  <label>New Passkey</label>
+                  <input
+                    type="password"
+                    value={passkeyValue}
+                    onChange={(e) => setPasskeyValue(e.target.value)}
+                    placeholder="Enter new passkey"
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div className="field">
+                  <label>Confirm Passkey</label>
+                  <input
+                    type="password"
+                    value={passkeyConfirm}
+                    onChange={(e) => setPasskeyConfirm(e.target.value)}
+                    placeholder="Confirm new passkey"
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+              {passkeyMessage && (
+                <div className="notice" style={{ marginTop: 12 }}>{passkeyMessage}</div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={closePasskeyModal}>Cancel</button>
+              <button className="primary" onClick={handleUpdatePasskey}>Update Passkey</button>
             </div>
           </div>
         </div>

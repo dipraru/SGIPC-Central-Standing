@@ -125,6 +125,13 @@ const Standings = () => {
         });
       }
       setRequestSuccess("Request submitted successfully.");
+      setRequestHandle("");
+      setRequestName("");
+      setRequestRoll("");
+      setRequestBatch("");
+      setRequestTeamName("");
+      setRequestTeamHandles("");
+      setRequestPasskey("");
       setTimeout(() => setRequestSuccess(""), 1500);
     } catch (err) {
       const msg = err?.response?.data?.message || "Unable to submit request";
@@ -266,7 +273,7 @@ const Standings = () => {
         <p>
           Live rankings based on Codeforces practice and VJudge team contests
         </p>
-        <button className="btn primary" onClick={openRequestModal} style={{ marginTop: 16 }}>
+        <button className="btn secondary" onClick={openRequestModal} style={{ marginTop: 16 }}>
           Request to Join Standings
         </button>
       </div>
@@ -517,6 +524,7 @@ const Standings = () => {
                       value={requestHandle}
                       onChange={(e) => setRequestHandle(e.target.value)}
                       placeholder="e.g., tourist"
+                      autoComplete="off"
                     />
                   </div>
                   <div className="field">
@@ -526,6 +534,7 @@ const Standings = () => {
                       value={requestName}
                       onChange={(e) => setRequestName(e.target.value)}
                       placeholder="Full name"
+                      autoComplete="off"
                     />
                   </div>
                   <div className="field">
@@ -535,6 +544,7 @@ const Standings = () => {
                       value={requestRoll}
                       onChange={(e) => setRequestRoll(e.target.value)}
                       placeholder="Roll number"
+                      autoComplete="off"
                     />
                   </div>
                   <div className="field">
@@ -544,6 +554,7 @@ const Standings = () => {
                       value={requestBatch}
                       onChange={(e) => setRequestBatch(e.target.value)}
                       placeholder="Batch"
+                      autoComplete="off"
                     />
                   </div>
                   <div className="field" style={{ gridColumn: "1 / -1" }}>
@@ -553,6 +564,7 @@ const Standings = () => {
                       value={requestPasskey}
                       onChange={(e) => setRequestPasskey(e.target.value)}
                       placeholder="Passkey"
+                      autoComplete="new-password"
                     />
                   </div>
                 </div>
@@ -567,6 +579,7 @@ const Standings = () => {
                       value={requestTeamName}
                       onChange={(e) => setRequestTeamName(e.target.value)}
                       placeholder="Team name"
+                      autoComplete="off"
                     />
                   </div>
                   <div className="field">
@@ -576,6 +589,7 @@ const Standings = () => {
                       value={requestTeamHandles}
                       onChange={(e) => setRequestTeamHandles(e.target.value)}
                       placeholder="handle1, handle2"
+                      autoComplete="off"
                     />
                     <p className="input-help">If multiple accounts, separate with commas.</p>
                   </div>
@@ -586,6 +600,7 @@ const Standings = () => {
                       value={requestPasskey}
                       onChange={(e) => setRequestPasskey(e.target.value)}
                       placeholder="Passkey"
+                      autoComplete="new-password"
                     />
                   </div>
                 </div>

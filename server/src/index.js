@@ -50,13 +50,11 @@ connectDb(process.env.MONGODB_URI)
   .then(async () => {
     const adminUsername = "admin";
     const adminPassword = "admin";
-    const passwordHash = await bcrypt.hash(adminPassword, 10);
-
-    await Admin.findOneAndUpdate(
-      { username: adminUsername },
-      { username: adminUsername, passwordHash },
-      { upsert: true, new: true }
-    );
+    const existingAdmin = await Admin.findOne({ username: adminUsername }).lean();
+    if (!existingAdmin) {
+      const passwordHash = await bcrypt.hash(adminPassword, 10);
+      await Admin.create({ username: adminUsername, passwordHash });
+    }
 
     const passkey = await Passkey.findOne().lean();
     if (!passkey) {

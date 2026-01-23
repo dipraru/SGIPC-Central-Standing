@@ -7,7 +7,8 @@ const Standings = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [openHandleId, setOpenHandleId] = useState(null);
+  const [activityModalOpen, setActivityModalOpen] = useState(false);
+  const [activityModalData, setActivityModalData] = useState(null);
   const [teamStandings, setTeamStandings] = useState([]);
   const [teamLoading, setTeamLoading] = useState(true);
   const [teamError, setTeamError] = useState("");
@@ -37,8 +38,14 @@ const Standings = () => {
     return { level: "CompetingWithAliens", class: "aliens" };
   };
 
-  const toggleHandle = (id) => {
-    setOpenHandleId(openHandleId === id ? null : id);
+  const openActivityModal = (handle) => {
+    setActivityModalData(handle);
+    setActivityModalOpen(true);
+  };
+
+  const closeActivityModal = () => {
+    setActivityModalOpen(false);
+    setActivityModalData(null);
   };
 
   const openModal = (handle) => {
@@ -319,59 +326,12 @@ const Standings = () => {
                       <td>
                         <button
                           className="secondary sm"
-                          onClick={() => toggleHandle(row.id)}
+                          onClick={() => openActivityModal(row)}
                         >
-                          {openHandleId === row.id ? "Hide" : "View"}
+                          View
                         </button>
                       </td>
                     </tr>
-                    {openHandleId === row.id && (
-                      <tr>
-                        <td colSpan={7}>
-                          <div className="dropdown-panel">
-                            <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 600 }}>
-                              Recent Activity (Last 5 Days)
-                            </h3>
-                            {row.recentStats?.map((day) => (
-                              <div key={day.date} className="day-block">
-                                <div className="day-header">
-                                  <span style={{ fontSize: 14 }}>{day.date}</span>
-                                  <div className="delta-block">
-                                    <span className="delta-meta">
-                                      {day.fromRating} → {day.toRating}
-                                    </span>
-                                    <span
-                                      className={
-                                        day.delta >= 0
-                                          ? "delta-positive"
-                                          : "delta-negative"
-                                      }
-                                    >
-                                      {day.delta >= 0 ? "+" : ""}
-                                      {day.delta}
-                                    </span>
-                                  </div>
-                                </div>
-                                {day.problems.length === 0 ? (
-                                  <p className="day-empty">No problems solved this day</p>
-                                ) : (
-                                  <ul className="problem-list">
-                                    {day.problems.map((problem, idx) => (
-                                      <li key={`${problem.contestId}-${problem.index}-${idx}`}>
-                                        <strong>{problem.name}</strong> — Rating: {problem.rating}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
-                                <p className="day-empty" style={{ marginTop: 8 }}>
-                                  Pending unrated: {day.pendingCount ?? 0} problems
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
                   </React.Fragment>
                 ))}
               </tbody>
@@ -480,6 +440,58 @@ const Standings = () => {
             </div>
             <div className="modal-footer">
               <button className="secondary" onClick={closeModal}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activityModalOpen && activityModalData && (
+        <div className="modal-overlay" onClick={closeActivityModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Recent Activity (Last 5 Days)</h2>
+              <button className="modal-close" onClick={closeActivityModal}>×</button>
+            </div>
+            <div className="modal-body">
+              {activityModalData.recentStats?.map((day) => (
+                <div key={day.date} className="day-block">
+                  <div className="day-header">
+                    <span style={{ fontSize: 14 }}>{day.date}</span>
+                    <div className="delta-block">
+                      <span className="delta-meta">
+                        {day.fromRating} → {day.toRating}
+                      </span>
+                      <span
+                        className={
+                          day.delta >= 0
+                            ? "delta-positive"
+                            : "delta-negative"
+                        }
+                      >
+                        {day.delta >= 0 ? "+" : ""}
+                        {day.delta}
+                      </span>
+                    </div>
+                  </div>
+                  {day.problems.length === 0 ? (
+                    <p className="day-empty">No problems solved this day</p>
+                  ) : (
+                    <ul className="problem-list">
+                      {day.problems.map((problem, idx) => (
+                        <li key={`${problem.contestId}-${problem.index}-${idx}`}>
+                          <strong>{problem.name}</strong> — Rating: {problem.rating}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="day-empty" style={{ marginTop: 8 }}>
+                    Pending unrated: {day.pendingCount ?? 0} problems
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={closeActivityModal}>Close</button>
             </div>
           </div>
         </div>

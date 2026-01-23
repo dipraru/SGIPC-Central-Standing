@@ -10,6 +10,7 @@ import { connectDb } from "../server/src/config/db.js";
 import { Admin } from "../server/src/models/Admin.js";
 import { Passkey } from "../server/src/models/Passkey.js";
 import bcrypt from "bcryptjs";
+import { refreshAllHandles } from "../server/src/services/scheduler.js";
 
 // Load environment variables
 dotenv.config();
@@ -57,6 +58,23 @@ app.use("/api/admin", adminVjudgeRoutes);
 app.use("/api", standingsRoutes);
 app.use("/api", vjudgeRoutes);
 app.use("/api", requestRoutes);
+
+// Cron-triggered refresh endpoint (used by Vercel cron)
+app.get("/api/cron/refresh", async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.query.secret !== secret) {
+    return res.status(401).json({ status: "unauthorized" });
+  }
+
+  try {
+    await initializeApp();
+    await refreshAllHandles();
+    res.json({ status: "ok" });
+  } catch (error) {
+    console.error("Cron refresh error:", error);
+    res.status(500).json({ status: "error" });
+  }
+});
 
 // Catch-all serverless handler
 export default async function handler(req, res) {

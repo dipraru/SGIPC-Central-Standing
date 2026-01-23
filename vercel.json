@@ -7,6 +7,12 @@
       "maxDuration": 60
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron/refresh",
+      "schedule": "0 18 * * *"
+    }
+  ],
   "routes": [
     { "handle": "filesystem" },
     { "src": "/api/(.*)", "dest": "/api/[...all]" },

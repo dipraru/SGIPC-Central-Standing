@@ -5,6 +5,7 @@ import { HandleMeta } from "../models/HandleMeta.js";
 import { PendingProblem } from "../models/PendingProblem.js";
 import { RatingHistory } from "../models/RatingHistory.js";
 import { getSolvedProblems, getUserInfo } from "../services/codeforces.js";
+import { refreshHandleData } from "../services/scheduler.js";
 import {
   calculateEloScore,
   computeRatingUpTo,
@@ -24,8 +25,10 @@ router.get("/standings", async (req, res) => {
     const results = await Promise.all(
       handles.map(async (entry) => {
         const nowSeconds = Math.floor(Date.now() / 1000);
-        const targetSeconds = nowSeconds - 86400;
-        const todayKey = toLocalDateKey(targetSeconds);
+        const localTodayKey = toLocalDateKey(nowSeconds);
+        const localTodayStart = startOfLocalDayFromDateKey(localTodayKey);
+        const targetEndSeconds = localTodayStart - 1;
+        const todayKey = toLocalDateKey(targetEndSeconds);
         const todayEndSeconds = startOfLocalDayFromDateKey(todayKey) + 86400 - 1;
         const lastSixDates = Array.from({ length: 6 }, (_, i) =>
           toLocalDateKey(targetSeconds - (5 - i) * 86400)
@@ -46,6 +49,13 @@ router.get("/standings", async (req, res) => {
           );
 
           const meta = await HandleMeta.findOne({ handle: entry.handle }).lean();
+          if (!meta || meta.lastUpdateDate !== todayKey) {
+            try {
+              await refreshHandleData(entry.handle, { fullHistory: true });
+            } catch (refreshError) {
+              console.error(`Refresh failed for ${entry.handle}:`, refreshError);
+            }
+          }
           // Only refresh if explicitly requested via query param, not automatically
           const needsRefresh = req.query.refresh === "1" && (!meta || meta.lastUpdateDate !== todayKey || !historyComplete);
 

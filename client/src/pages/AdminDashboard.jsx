@@ -15,6 +15,10 @@ import {
   updateVjudgeConfig,
   updateVjudgeContest,
   updateAdminCredentials,
+  getRequests,
+  approveRequest,
+  rejectRequest,
+  updatePasskey,
 } from "../api.js";
 
 const AdminDashboard = () => {
@@ -50,6 +54,12 @@ const AdminDashboard = () => {
   const [handleAddSuccess, setHandleAddSuccess] = useState(false);
   const [deletingHandleId, setDeletingHandleId] = useState(null);
   const [handleDeleteSuccessId, setHandleDeleteSuccessId] = useState(null);
+  const [requests, setRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsError, setRequestsError] = useState("");
+  const [passkeyValue, setPasskeyValue] = useState("");
+  const [passkeyConfirm, setPasskeyConfirm] = useState("");
+  const [passkeyMessage, setPasskeyMessage] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -98,10 +108,30 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadRequests = async () => {
+    try {
+      setRequestsLoading(true);
+      setRequestsError("");
+      const data = await getRequests("pending");
+      setRequests(data);
+    } catch (err) {
+      if (handleAuthError(err)) return;
+      setRequestsError("Unable to load requests");
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadHandles();
     loadVjudge();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "requests") {
+      loadRequests();
+    }
+  }, [activeTab]);
 
   const handleCreate = async () => {
     if (!newHandle.trim()) return;
@@ -363,6 +393,50 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleApproveRequest = async (id) => {
+    try {
+      await approveRequest(id);
+      await loadRequests();
+      await loadHandles();
+      await loadVjudge();
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Unable to approve request";
+      setRequestsError(msg);
+    }
+  };
+
+  const handleRejectRequest = async (id) => {
+    try {
+      await rejectRequest(id);
+      await loadRequests();
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Unable to reject request";
+      setRequestsError(msg);
+    }
+  };
+
+  const handleUpdatePasskey = async () => {
+    setPasskeyMessage("");
+    if (!passkeyValue.trim() || !passkeyConfirm.trim()) {
+      setPasskeyMessage("Passkey fields are required");
+      return;
+    }
+    if (passkeyValue.trim() !== passkeyConfirm.trim()) {
+      setPasskeyMessage("Passkeys do not match");
+      return;
+    }
+    try {
+      await updatePasskey({ newPasskey: passkeyValue.trim() });
+      setPasskeyMessage("Passkey updated successfully");
+      setPasskeyValue("");
+      setPasskeyConfirm("");
+      setTimeout(() => setPasskeyMessage(""), 1500);
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Unable to update passkey";
+      setPasskeyMessage(msg);
+    }
+  };
+
   const startContestEdit = (contest) => {
     setEditingContestId(contest._id);
     setEditingContestValue(String(contest.contestId || ""));
@@ -444,6 +518,12 @@ const AdminDashboard = () => {
           onClick={() => setActiveTab("team")}
         >
           Team Standings
+        </button>
+        <button
+          className={`tab ${activeTab === "requests" ? "active" : ""}`}
+          onClick={() => setActiveTab("requests")}
+        >
+          Requests
         </button>
       </div>
 
@@ -925,6 +1005,104 @@ const AdminDashboard = () => {
           </table>
         )}
       </div>
+      )}
+
+      {activeTab === "requests" && (
+        <div className="card">
+          <h2 style={{ marginBottom: "8px" }}>Pending Requests</h2>
+          <p style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>
+            Approve or reject requests for handles and teams
+          </p>
+
+          {requestsLoading && (
+            <div className="empty-state">
+              <div className="loading-spinner"></div>
+              <p>Loading requests...</p>
+            </div>
+          )}
+          {!requestsLoading && requestsError && (
+            <div className="notice error" style={{ marginBottom: 16 }}>
+              {requestsError}
+            </div>
+          )}
+          {!requestsLoading && !requestsError && requests.length === 0 && (
+            <div className="empty-state">
+              <p>No pending requests.</p>
+            </div>
+          )}
+
+          {!requestsLoading && !requestsError && requests.length > 0 && (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Details</th>
+                  <th style={{ textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {requests.map((request) => (
+                  <tr key={request._id}>
+                    <td><strong>{request.type === "handle" ? "Handle" : "Team"}</strong></td>
+                    <td>
+                      {request.type === "handle" ? (
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <span><strong>{request.handle}</strong></span>
+                          <span>{request.name} • {request.roll} • {request.batch}</span>
+                        </div>
+                      ) : (
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <span><strong>{request.teamName}</strong></span>
+                          <span style={{ color: "var(--text-secondary)" }}>{request.teamHandles}</span>
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <div className="actions" style={{ justifyContent: "flex-end" }}>
+                        <button className="primary" onClick={() => handleApproveRequest(request._id)}>
+                          Approve
+                        </button>
+                        <button className="danger" onClick={() => handleRejectRequest(request._id)}>
+                          Reject
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <div style={{ marginTop: 32, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+            <h3 style={{ fontSize: "16px", marginBottom: "12px" }}>Update SGIPC Passkey</h3>
+            <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+              <div className="field">
+                <label>New Passkey</label>
+                <input
+                  type="password"
+                  value={passkeyValue}
+                  onChange={(e) => setPasskeyValue(e.target.value)}
+                  placeholder="Enter new passkey"
+                />
+              </div>
+              <div className="field">
+                <label>Confirm Passkey</label>
+                <input
+                  type="password"
+                  value={passkeyConfirm}
+                  onChange={(e) => setPasskeyConfirm(e.target.value)}
+                  placeholder="Confirm new passkey"
+                />
+              </div>
+            </div>
+            {passkeyMessage && (
+              <div className="notice" style={{ marginTop: 12 }}>{passkeyMessage}</div>
+            )}
+            <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+              <button className="primary" onClick={handleUpdatePasskey}>Update Passkey</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal for viewing handle details */}

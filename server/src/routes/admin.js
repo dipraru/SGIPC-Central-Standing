@@ -8,6 +8,9 @@ import { PendingProblem } from "../models/PendingProblem.js";
 import { RatingHistory } from "../models/RatingHistory.js";
 import { getUserInfo } from "../services/codeforces.js";
 import { Admin } from "../models/Admin.js";
+import { Passkey } from "../models/Passkey.js";
+import { Request } from "../models/Request.js";
+import { VjudgeTeam } from "../models/VjudgeTeam.js";
 import { refreshHandleData } from "../services/scheduler.js";
 
 const router = express.Router();
@@ -171,6 +174,93 @@ router.delete("/handles/:id", authRequired, async (req, res) => {
     HandleMeta.deleteMany({ handle: deleted.handle }),
   ]);
   return res.status(204).send();
+});
+
+router.get("/requests", authRequired, async (req, res) => {
+  const status = req.query.status;
+  const filter = status ? { status } : {};
+  const requests = await Request.find(filter).sort({ createdAt: -1 }).lean();
+  return res.json(requests);
+});
+
+router.post("/requests/:id/approve", authRequired, async (req, res) => {
+  const request = await Request.findById(req.params.id);
+  if (!request) {
+    return res.status(404).json({ message: "Request not found" });
+  }
+  if (request.status !== "pending") {
+    return res.status(400).json({ message: "Request already processed" });
+  }
+
+  if (request.type === "handle") {
+    const existingHandle = await Handle.findOne({ handle: request.handle });
+    if (existingHandle) {
+      return res.status(400).json({ message: "Handle already exists" });
+    }
+    const created = await Handle.create({
+      handle: request.handle,
+      name: request.name || "",
+      roll: request.roll || "",
+      batch: request.batch || "",
+    });
+    try {
+      await refreshHandleData(request.handle, { fullHistory: true });
+    } catch (error) {
+      await Promise.all([
+        Handle.deleteOne({ handle: request.handle }),
+        DailySolved.deleteMany({ handle: request.handle }),
+        PendingProblem.deleteMany({ handle: request.handle }),
+        RatingHistory.deleteMany({ handle: request.handle }),
+        HandleMeta.deleteMany({ handle: request.handle }),
+      ]);
+      return res.status(502).json({ message: "Backfill failed. Nothing was saved." });
+    }
+    request.status = "approved";
+    request.approvedAt = new Date();
+    await request.save();
+    return res.json({ message: "Request approved", handle: created });
+  }
+
+  if (request.type === "team") {
+    const aliases = (request.teamHandles || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const createdTeam = await VjudgeTeam.create({
+      name: request.teamName,
+      aliases,
+    });
+    request.status = "approved";
+    request.approvedAt = new Date();
+    await request.save();
+    return res.json({ message: "Request approved", team: createdTeam });
+  }
+
+  return res.status(400).json({ message: "Unsupported request type" });
+});
+
+router.post("/requests/:id/reject", authRequired, async (req, res) => {
+  const request = await Request.findById(req.params.id);
+  if (!request) {
+    return res.status(404).json({ message: "Request not found" });
+  }
+  if (request.status !== "pending") {
+    return res.status(400).json({ message: "Request already processed" });
+  }
+  request.status = "rejected";
+  request.rejectedAt = new Date();
+  await request.save();
+  return res.json({ message: "Request rejected" });
+});
+
+router.put("/passkey", authRequired, async (req, res) => {
+  const { newPasskey } = req.body;
+  if (!newPasskey || !newPasskey.trim()) {
+    return res.status(400).json({ message: "New passkey is required" });
+  }
+  const keyHash = await bcrypt.hash(newPasskey.trim(), 10);
+  await Passkey.findOneAndUpdate({}, { keyHash }, { upsert: true, new: true });
+  return res.json({ message: "Passkey updated" });
 });
 
 export default router;

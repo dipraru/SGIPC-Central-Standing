@@ -5,8 +5,10 @@ import adminRoutes from "../server/src/routes/admin.js";
 import adminVjudgeRoutes from "../server/src/routes/adminVjudge.js";
 import standingsRoutes from "../server/src/routes/standings.js";
 import vjudgeRoutes from "../server/src/routes/vjudge.js";
+import requestRoutes from "../server/src/routes/requests.js";
 import { connectDb } from "../server/src/config/db.js";
 import { Admin } from "../server/src/models/Admin.js";
+import { Passkey } from "../server/src/models/Passkey.js";
 import bcrypt from "bcryptjs";
 
 // Load environment variables
@@ -33,6 +35,12 @@ async function initializeApp() {
     { username: adminUsername, passwordHash },
     { upsert: true, new: true }
   );
+
+  const passkey = await Passkey.findOne().lean();
+  if (!passkey) {
+    const keyHash = await bcrypt.hash("sgipc", 10);
+    await Passkey.create({ keyHash });
+  }
 }
 
 // Health check (no debug details)
@@ -50,6 +58,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminVjudgeRoutes);
 app.use("/api", standingsRoutes);
 app.use("/api", vjudgeRoutes);
+app.use("/api", requestRoutes);
 
 // Catch-all serverless handler
 export default async function handler(req, res) {

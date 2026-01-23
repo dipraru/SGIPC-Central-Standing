@@ -99,4 +99,36 @@ export const updateAdminCredentials = async (payload) => {
   return data;
 };
 
+export const submitHandleRequest = async (payload) => {
+  const { data } = await api.post("/request/handle", payload);
+  return data;
+};
+
+export const submitTeamRequest = async (payload) => {
+  const { data } = await api.post("/request/team", payload);
+  return data;
+};
+
+export const getRequests = async (status) => {
+  const { data } = await api.get("/admin/requests", {
+    params: status ? { status } : undefined,
+  });
+  return data;
+};
+
+export const approveRequest = async (id) => {
+  const { data } = await api.post(`/admin/requests/${id}/approve`);
+  return data;
+};
+
+export const rejectRequest = async (id) => {
+  const { data } = await api.post(`/admin/requests/${id}/reject`);
+  return data;
+};
+
+export const updatePasskey = async (payload) => {
+  const { data } = await api.put("/admin/passkey", payload);
+  return data;
+};
+
 /* WQ2LDzMUdnmNOGns */

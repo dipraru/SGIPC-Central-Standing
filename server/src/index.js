@@ -7,8 +7,10 @@ import adminRoutes from "./routes/admin.js";
 import adminVjudgeRoutes from "./routes/adminVjudge.js";
 import standingsRoutes from "./routes/standings.js";
 import vjudgeRoutes from "./routes/vjudge.js";
+import requestRoutes from "./routes/requests.js";
 import { connectDb } from "./config/db.js";
 import { Admin } from "./models/Admin.js";
+import { Passkey } from "./models/Passkey.js";
 import bcrypt from "bcryptjs";
 import { startScheduler } from "./services/scheduler.js";
 
@@ -31,6 +33,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminVjudgeRoutes);
 app.use("/api", standingsRoutes);
 app.use("/api", vjudgeRoutes);
+app.use("/api", requestRoutes);
 
 // Serve static files from React app
 const clientDistPath = path.resolve(__dirname, "../../client/dist");
@@ -54,6 +57,12 @@ connectDb(process.env.MONGODB_URI)
       { username: adminUsername, passwordHash },
       { upsert: true, new: true }
     );
+
+    const passkey = await Passkey.findOne().lean();
+    if (!passkey) {
+      const keyHash = await bcrypt.hash("sgipc", 10);
+      await Passkey.create({ keyHash });
+    }
 
     app.listen(port, "0.0.0.0", () => {
       console.log(`Server running on port ${port}`);

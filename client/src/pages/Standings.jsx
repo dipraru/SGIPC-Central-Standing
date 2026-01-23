@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { getStandings, getVjudgeStandings } from "../api.js";
+import { getStandings, getVjudgeStandings, submitHandleRequest, submitTeamRequest } from "../api.js";
 
 const Standings = () => {
   const [activeTab, setActiveTab] = useState("individual");
@@ -15,6 +15,18 @@ const Standings = () => {
   const [eloMode, setEloMode] = useState("normal");
   const [modalOpen, setModalOpen] = useState(false);
   const [modalData, setModalData] = useState(null);
+  const [requestModalOpen, setRequestModalOpen] = useState(false);
+  const [requestTab, setRequestTab] = useState("handle");
+  const [requestHandle, setRequestHandle] = useState("");
+  const [requestName, setRequestName] = useState("");
+  const [requestRoll, setRequestRoll] = useState("");
+  const [requestBatch, setRequestBatch] = useState("");
+  const [requestTeamName, setRequestTeamName] = useState("");
+  const [requestTeamHandles, setRequestTeamHandles] = useState("");
+  const [requestPasskey, setRequestPasskey] = useState("");
+  const [requestError, setRequestError] = useState("");
+  const [requestSuccess, setRequestSuccess] = useState("");
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
   const eloModeLabels = {
     normal: "Classic Elo",
     "gain-only": "Gain-only",
@@ -56,6 +68,70 @@ const Standings = () => {
   const closeModal = () => {
     setModalOpen(false);
     setModalData(null);
+  };
+
+  const openRequestModal = () => {
+    setRequestModalOpen(true);
+    setRequestTab("handle");
+    setRequestHandle("");
+    setRequestName("");
+    setRequestRoll("");
+    setRequestBatch("");
+    setRequestTeamName("");
+    setRequestTeamHandles("");
+    setRequestPasskey("");
+    setRequestError("");
+    setRequestSuccess("");
+  };
+
+  const closeRequestModal = () => {
+    setRequestModalOpen(false);
+    setRequestError("");
+    setRequestSuccess("");
+  };
+
+  const submitRequest = async () => {
+    setRequestError("");
+    setRequestSuccess("");
+    if (requestSubmitting) return;
+
+    if (requestTab === "handle") {
+      if (!requestHandle.trim() || !requestName.trim() || !requestRoll.trim() || !requestBatch.trim() || !requestPasskey.trim()) {
+        setRequestError("All fields are required.");
+        return;
+      }
+    } else {
+      if (!requestTeamName.trim() || !requestTeamHandles.trim() || !requestPasskey.trim()) {
+        setRequestError("All fields are required.");
+        return;
+      }
+    }
+
+    try {
+      setRequestSubmitting(true);
+      if (requestTab === "handle") {
+        await submitHandleRequest({
+          handle: requestHandle.trim(),
+          name: requestName.trim(),
+          roll: requestRoll.trim(),
+          batch: requestBatch.trim(),
+          passkey: requestPasskey.trim(),
+        });
+      } else {
+        await submitTeamRequest({
+          teamName: requestTeamName.trim(),
+          teamHandles: requestTeamHandles.trim(),
+          passkey: requestPasskey.trim(),
+        });
+      }
+      setRequestSuccess("Request submitted successfully.");
+      setTimeout(() => setRequestSuccess(""), 1500);
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Unable to submit request";
+      setRequestError(msg);
+    } finally {
+      setRequestSubmitting(false);
+    }
   };
 
   const fetchStandingsData = async () => {
@@ -190,6 +266,9 @@ const Standings = () => {
         <p>
           Live rankings based on Codeforces practice and VJudge team contests
         </p>
+        <button className="btn primary" onClick={openRequestModal} style={{ marginTop: 16 }}>
+          Request to Join Standings
+        </button>
       </div>
 
       <div className="tabs">
@@ -400,6 +479,125 @@ const Standings = () => {
               </tbody>
             </table>
           )}
+        </div>
+      )}
+
+      {requestModalOpen && (
+        <div className="modal-overlay" onClick={closeRequestModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Request to Join Standings</h2>
+              <button className="modal-close" onClick={closeRequestModal}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="tabs" style={{ marginBottom: 16 }}>
+                <button
+                  className={`tab ${requestTab === "handle" ? "active" : ""}`}
+                  onClick={() => setRequestTab("handle")}
+                >
+                  Individual
+                </button>
+                <button
+                  className={`tab ${requestTab === "team" ? "active" : ""}`}
+                  onClick={() => setRequestTab("team")}
+                >
+                  Team
+                </button>
+              </div>
+
+              {requestError && <div className="notice error" style={{ marginBottom: 12 }}>{requestError}</div>}
+              {requestSuccess && <div className="notice success" style={{ marginBottom: 12 }}>{requestSuccess}</div>}
+
+              {requestTab === "handle" && (
+                <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+                  <div className="field">
+                    <label>Codeforces Handle</label>
+                    <input
+                      type="text"
+                      value={requestHandle}
+                      onChange={(e) => setRequestHandle(e.target.value)}
+                      placeholder="e.g., tourist"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Name</label>
+                    <input
+                      type="text"
+                      value={requestName}
+                      onChange={(e) => setRequestName(e.target.value)}
+                      placeholder="Full name"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Roll</label>
+                    <input
+                      type="text"
+                      value={requestRoll}
+                      onChange={(e) => setRequestRoll(e.target.value)}
+                      placeholder="Roll number"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Batch</label>
+                    <input
+                      type="text"
+                      value={requestBatch}
+                      onChange={(e) => setRequestBatch(e.target.value)}
+                      placeholder="Batch"
+                    />
+                  </div>
+                  <div className="field" style={{ gridColumn: "1 / -1" }}>
+                    <label>SGIPC Passkey</label>
+                    <input
+                      type="password"
+                      value={requestPasskey}
+                      onChange={(e) => setRequestPasskey(e.target.value)}
+                      placeholder="Passkey"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {requestTab === "team" && (
+                <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+                  <div className="field">
+                    <label>Team Name</label>
+                    <input
+                      type="text"
+                      value={requestTeamName}
+                      onChange={(e) => setRequestTeamName(e.target.value)}
+                      placeholder="Team name"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>VJudge Team Handles</label>
+                    <input
+                      type="text"
+                      value={requestTeamHandles}
+                      onChange={(e) => setRequestTeamHandles(e.target.value)}
+                      placeholder="handle1, handle2"
+                    />
+                    <p className="input-help">If multiple accounts, separate with commas.</p>
+                  </div>
+                  <div className="field" style={{ gridColumn: "1 / -1" }}>
+                    <label>SGIPC Passkey</label>
+                    <input
+                      type="password"
+                      value={requestPasskey}
+                      onChange={(e) => setRequestPasskey(e.target.value)}
+                      placeholder="Passkey"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={closeRequestModal}>Cancel</button>
+              <button className="primary" onClick={submitRequest} disabled={requestSubmitting}>
+                {requestSubmitting ? "Submitting..." : "Submit Request"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

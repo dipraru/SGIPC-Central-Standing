@@ -31,7 +31,7 @@ router.get("/standings", async (req, res) => {
         const todayKey = toLocalDateKey(targetEndSeconds);
         const todayEndSeconds = startOfLocalDayFromDateKey(todayKey) + 86400 - 1;
         const lastSixDates = Array.from({ length: 6 }, (_, i) =>
-          toLocalDateKey(targetSeconds - (5 - i) * 86400)
+          toLocalDateKey(targetEndSeconds - (5 - i) * 86400)
         );
         const lastFiveDates = lastSixDates.slice(1);
         const forceRefresh = req.query.refresh === "1";
@@ -56,8 +56,11 @@ router.get("/standings", async (req, res) => {
           const historyComplete = lastSixDates.every((dateKey) =>
             historyMapFromDb.has(dateKey)
           );
-          // Only refresh if explicitly requested via query param, not automatically
-          const needsRefresh = req.query.refresh === "1" && (!meta || meta.lastUpdateDate !== todayKey || !historyComplete);
+          const needsRefresh =
+            forceRefresh ||
+            !historyComplete ||
+            !meta ||
+            meta.lastUpdateDate !== todayKey;
 
           let maxRating = 0;
           let solvedProblems = [];

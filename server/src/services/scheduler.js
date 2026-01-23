@@ -41,6 +41,14 @@ export async function refreshHandleData(handle, options = {}) {
     );
     const lastFiveDates = lastSixDates.slice(1);
 
+    if (fullHistory) {
+      await Promise.all([
+        DailySolved.deleteMany({ handle }),
+        RatingHistory.deleteMany({ handle }),
+        PendingProblem.deleteMany({ handle }),
+      ]);
+    }
+
     const dailySolvedMap = new Map(lastFiveDates.map((dateKey) => [dateKey, []]));
     const pendingMap = new Map();
 
@@ -159,7 +167,7 @@ export async function refreshAllHandles() {
   const handles = await Handle.find().select("handle").lean();
   
   for (const { handle } of handles) {
-    await refreshHandleData(handle);
+    await refreshHandleData(handle, { fullHistory: true });
   }
   
   console.log("Daily refresh completed for all handles");

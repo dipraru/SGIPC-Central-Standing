@@ -37,6 +37,15 @@ router.get("/standings", async (req, res) => {
         const forceRefresh = req.query.refresh === "1";
 
         try {
+          const meta = await HandleMeta.findOne({ handle: entry.handle }).lean();
+          if (!meta || meta.lastUpdateDate !== todayKey) {
+            try {
+              await refreshHandleData(entry.handle, { fullHistory: true });
+            } catch (refreshError) {
+              console.error(`Refresh failed for ${entry.handle}:`, refreshError);
+            }
+          }
+
           let historyEntries = await RatingHistory.find({
             handle: entry.handle,
             date: { $in: lastSixDates },
@@ -47,15 +56,6 @@ router.get("/standings", async (req, res) => {
           const historyComplete = lastSixDates.every((dateKey) =>
             historyMapFromDb.has(dateKey)
           );
-
-          const meta = await HandleMeta.findOne({ handle: entry.handle }).lean();
-          if (!meta || meta.lastUpdateDate !== todayKey) {
-            try {
-              await refreshHandleData(entry.handle, { fullHistory: true });
-            } catch (refreshError) {
-              console.error(`Refresh failed for ${entry.handle}:`, refreshError);
-            }
-          }
           // Only refresh if explicitly requested via query param, not automatically
           const needsRefresh = req.query.refresh === "1" && (!meta || meta.lastUpdateDate !== todayKey || !historyComplete);
 

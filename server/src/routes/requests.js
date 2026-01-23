@@ -4,6 +4,7 @@ import { Request } from "../models/Request.js";
 import { Passkey } from "../models/Passkey.js";
 import { Handle } from "../models/Handle.js";
 import { VjudgeTeam } from "../models/VjudgeTeam.js";
+import { getUserInfo } from "../services/codeforces.js";
 
 const router = express.Router();
 
@@ -55,6 +56,12 @@ router.post("/request/handle", async (req, res) => {
   const isValid = await verifyPasskey(passkey);
   if (!isValid) {
     return res.status(401).json({ message: "Invalid passkey" });
+  }
+
+  try {
+    await getUserInfo(normalizedHandle);
+  } catch (error) {
+    return res.status(400).json({ message: "Invalid Codeforces handle" });
   }
 
   const created = await Request.create({

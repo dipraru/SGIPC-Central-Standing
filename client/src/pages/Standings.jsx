@@ -660,12 +660,16 @@ const Standings = () => {
 
       {activityModalOpen && activityModalData && (
         <div className="modal-overlay" onClick={closeActivityModal}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal-content"
+            style={{ maxHeight: "80vh", overflow: "hidden", display: "flex", flexDirection: "column" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
               <h2>Recent Activity (Last 5 Days)</h2>
               <button className="modal-close" onClick={closeActivityModal}>×</button>
             </div>
-            <div className="modal-body">
+            <div className="modal-body" style={{ overflowY: "auto" }}>
               {activityModalData.recentStats?.map((day) => (
                 <div key={day.date} className="day-block">
                   <div className="day-header">

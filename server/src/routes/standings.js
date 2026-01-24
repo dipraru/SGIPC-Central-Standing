@@ -68,7 +68,16 @@ router.get("/standings", async (req, res) => {
 
           if (needsRefresh) {
             const userInfo = await getUserInfo(entry.handle);
-            solvedProblems = await getSolvedProblems(entry.handle);
+            const solvedRaw = await getSolvedProblems(entry.handle);
+            const dedupedMap = new Map();
+            for (const problem of solvedRaw) {
+              const key = `${problem.contestId}-${problem.index}`;
+              const existing = dedupedMap.get(key);
+              if (!existing || (problem.solvedAtSeconds && problem.solvedAtSeconds < existing.solvedAtSeconds)) {
+                dedupedMap.set(key, problem);
+              }
+            }
+            solvedProblems = Array.from(dedupedMap.values());
             maxRating = userInfo.maxRating;
             totalSolved = solvedProblems.length;
 

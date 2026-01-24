@@ -10,7 +10,7 @@ import { connectDb } from "../server/src/config/db.js";
 import { Admin } from "../server/src/models/Admin.js";
 import { Passkey } from "../server/src/models/Passkey.js";
 import bcrypt from "bcryptjs";
-import { refreshAllHandles } from "../server/src/services/scheduler.js";
+import { refreshAllHandles, refreshHandleData } from "../server/src/services/scheduler.js";
 
 // Load environment variables
 dotenv.config();
@@ -72,6 +72,29 @@ app.get("/api/cron/refresh", async (req, res) => {
     res.json({ status: "ok" });
   } catch (error) {
     console.error("Cron refresh error:", error);
+    res.status(500).json({ status: "error" });
+  }
+});
+
+// Chunked refresh for long-running refreshAllHandles (avoid 60s timeouts)
+app.get("/api/cron/refresh-chunk", async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.query.secret !== secret) {
+    return res.status(401).json({ status: "unauthorized" });
+  }
+
+  const skip = Math.max(parseInt(req.query.skip || "0", 10), 0);
+  const limit = Math.max(Math.min(parseInt(req.query.limit || "5", 10), 20), 1);
+
+  try {
+    await initializeApp();
+    const handles = await import("../server/src/models/Handle.js").then((m) => m.Handle.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean());
+    for (const h of handles) {
+      await refreshHandleData(h.handle, { fullHistory: true });
+    }
+    res.json({ status: "ok", processed: handles.map((h) => h.handle), nextSkip: skip + handles.length });
+  } catch (error) {
+    console.error("Chunk refresh error:", error);
     res.status(500).json({ status: "error" });
   }
 });

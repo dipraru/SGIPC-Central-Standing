@@ -24,6 +24,17 @@ export async function refreshHandleData(handle, options = {}) {
       getSolvedProblems(handle)
     ]);
 
+    // Deduplicate problems by contest+index, keeping the earliest solve time
+    const dedupedProblemsMap = new Map();
+    for (const problem of solvedProblems) {
+      const key = `${problem.contestId}-${problem.index}`;
+      const existing = dedupedProblemsMap.get(key);
+      if (!existing || (problem.solvedAtSeconds && problem.solvedAtSeconds < existing.solvedAtSeconds)) {
+        dedupedProblemsMap.set(key, problem);
+      }
+    }
+    const uniqueSolved = Array.from(dedupedProblemsMap.values());
+
     // Update meta information
     const existingMeta = await HandleMeta.findOne({ handle }).lean();
     const lastUpdateDate = existingMeta?.lastUpdateDate || "";
@@ -32,7 +43,7 @@ export async function refreshHandleData(handle, options = {}) {
       return;
     }
 
-    const totalSolved = solvedProblems.length;
+    const totalSolved = uniqueSolved.length;
 
     // Update rating history for last 6 days
     const targetDayStart = startOfLocalDayFromDateKey(targetDateKey);
@@ -52,7 +63,7 @@ export async function refreshHandleData(handle, options = {}) {
     const dailySolvedMap = new Map(lastFiveDates.map((dateKey) => [dateKey, []]));
     const pendingMap = new Map();
 
-    for (const problem of solvedProblems) {
+    for (const problem of uniqueSolved) {
       if (!problem.solvedAtSeconds || problem.isGym) {
         continue;
       }
@@ -107,7 +118,7 @@ export async function refreshHandleData(handle, options = {}) {
         const endSeconds = startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
         const ratingForDate = computeRatingUpTo({
           maxRating: userInfo.maxRating,
-          solvedProblems,
+          solvedProblems: uniqueSolved,
           dayEndSeconds: endSeconds,
         });
         const created = await RatingHistory.findOneAndUpdate(
@@ -122,7 +133,7 @@ export async function refreshHandleData(handle, options = {}) {
       // Only compute the last completed day's rating; keep previous days as-is
       const dayRating = computeRatingUpTo({
         maxRating: userInfo.maxRating,
-        solvedProblems,
+        solvedProblems: uniqueSolved,
         dayEndSeconds: targetEndSeconds,
       });
 

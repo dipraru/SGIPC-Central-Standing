@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { getStandings, getVjudgeStandings, submitHandleRequest, submitTeamRequest } from "../api.js";
 
 const Standings = () => {
+  const maintenanceMode = true; // Temporarily show only the handle request form
   const [activeTab, setActiveTab] = useState("individual");
   const [standings, setStandings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,40 @@ const Standings = () => {
     normal: "Classic Elo",
     "gain-only": "Gain-only",
     "zero-participation": "Participation Required",
+  };
+
+  const submitHandleOnly = async () => {
+    setRequestError("");
+    setRequestSuccess("");
+    if (requestSubmitting) return;
+
+    if (!requestHandle.trim() || !requestName.trim() || !requestRoll.trim() || !requestBatch.trim() || !requestPasskey.trim()) {
+      setRequestError("All fields are required.");
+      return;
+    }
+
+    try {
+      setRequestSubmitting(true);
+      await submitHandleRequest({
+        handle: requestHandle.trim(),
+        name: requestName.trim(),
+        roll: requestRoll.trim(),
+        batch: requestBatch.trim(),
+        passkey: requestPasskey.trim(),
+      });
+      setRequestSuccess("Request submitted successfully.");
+      setRequestHandle("");
+      setRequestName("");
+      setRequestRoll("");
+      setRequestBatch("");
+      setRequestPasskey("");
+      setTimeout(() => setRequestSuccess(""), 1500);
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Unable to submit request";
+      setRequestError(msg);
+    } finally {
+      setRequestSubmitting(false);
+    }
   };
 
   const getRankBadgeClass = (rank) => {
@@ -89,6 +124,83 @@ const Standings = () => {
     setRequestError("");
     setRequestSuccess("");
   };
+
+  if (maintenanceMode) {
+    return (
+      <div className="container">
+        <div className="hero" style={{ marginBottom: 24 }}>
+          <span className="badge">SGIPC Competitive Programming Club</span>
+          <h1>Collecting Codeforces Handle</h1>
+          <p>Please submit your individual Codeforces handle to join the practice standings.</p>
+        </div>
+
+        <div className="card" style={{ maxWidth: 720, margin: "0 auto" }}>
+          <h2 style={{ marginBottom: 16 }}>Submit Your Handle</h2>
+          {requestError && <div className="notice error" style={{ marginBottom: 12 }}>{requestError}</div>}
+          {requestSuccess && <div className="notice success" style={{ marginBottom: 12 }}>{requestSuccess}</div>}
+
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+            <div className="field">
+              <label>Codeforces Handle</label>
+              <input
+                type="text"
+                value={requestHandle}
+                onChange={(e) => setRequestHandle(e.target.value)}
+                placeholder="e.g., tourist"
+                autoComplete="off"
+              />
+            </div>
+            <div className="field">
+              <label>Name</label>
+              <input
+                type="text"
+                value={requestName}
+                onChange={(e) => setRequestName(e.target.value)}
+                placeholder="Full name"
+                autoComplete="off"
+              />
+            </div>
+            <div className="field">
+              <label>Roll</label>
+              <input
+                type="text"
+                value={requestRoll}
+                onChange={(e) => setRequestRoll(e.target.value)}
+                placeholder="Roll number"
+                autoComplete="off"
+              />
+            </div>
+            <div className="field">
+              <label>Batch</label>
+              <input
+                type="text"
+                value={requestBatch}
+                onChange={(e) => setRequestBatch(e.target.value)}
+                placeholder="Batch"
+                autoComplete="off"
+              />
+            </div>
+            <div className="field" style={{ gridColumn: "1 / -1" }}>
+              <label>SGIPC Passkey</label>
+              <input
+                type="password"
+                value={requestPasskey}
+                onChange={(e) => setRequestPasskey(e.target.value)}
+                placeholder="Passkey"
+                autoComplete="new-password"
+              />
+            </div>
+          </div>
+
+          <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 12 }}>
+            <button className="primary" onClick={submitHandleOnly} disabled={requestSubmitting}>
+              {requestSubmitting ? "Submitting..." : "Submit Handle"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const submitRequest = async () => {
     setRequestError("");

@@ -54,9 +54,13 @@ const AdminDashboard = () => {
   const [handleAddSuccess, setHandleAddSuccess] = useState(false);
   const [deletingHandleId, setDeletingHandleId] = useState(null);
   const [handleDeleteSuccessId, setHandleDeleteSuccessId] = useState(null);
+  const [approvingRequestId, setApprovingRequestId] = useState(null);
+  const [rejectingRequestId, setRejectingRequestId] = useState(null);
+  const [requestSuccessId, setRequestSuccessId] = useState(null);
   const [requests, setRequests] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState("");
+  const [requestsCount, setRequestsCount] = useState(0);
   const [passkeyValue, setPasskeyValue] = useState("");
   const [passkeyConfirm, setPasskeyConfirm] = useState("");
   const [passkeyMessage, setPasskeyMessage] = useState("");
@@ -115,6 +119,7 @@ const AdminDashboard = () => {
       setRequestsError("");
       const data = await getRequests("pending");
       setRequests(data);
+      setRequestsCount(data.length || 0);
     } catch (err) {
       if (handleAuthError(err)) return;
       setRequestsError("Unable to load requests");
@@ -126,6 +131,7 @@ const AdminDashboard = () => {
   useEffect(() => {
     loadHandles();
     loadVjudge();
+    loadRequests();
   }, []);
 
   useEffect(() => {
@@ -407,24 +413,38 @@ const AdminDashboard = () => {
   };
 
   const handleApproveRequest = async (id) => {
+    if (approvingRequestId || rejectingRequestId) return;
     try {
+      setApprovingRequestId(id);
+      setRequestSuccessId(null);
       await approveRequest(id);
       await loadRequests();
       await loadHandles();
       await loadVjudge();
+      setRequestSuccessId(id);
+      setTimeout(() => setRequestSuccessId(null), 1200);
     } catch (err) {
       const msg = err?.response?.data?.message || "Unable to approve request";
       setRequestsError(msg);
+    } finally {
+      setApprovingRequestId(null);
     }
   };
 
   const handleRejectRequest = async (id) => {
+    if (approvingRequestId || rejectingRequestId) return;
     try {
+      setRejectingRequestId(id);
+      setRequestSuccessId(null);
       await rejectRequest(id);
       await loadRequests();
+      setRequestSuccessId(id);
+      setTimeout(() => setRequestSuccessId(null), 1200);
     } catch (err) {
       const msg = err?.response?.data?.message || "Unable to reject request";
       setRequestsError(msg);
+    } finally {
+      setRejectingRequestId(null);
     }
   };
 
@@ -540,6 +560,27 @@ const AdminDashboard = () => {
           onClick={() => setActiveTab("requests")}
         >
           Requests
+          {requestsCount > 0 && (
+            <span
+              style={{
+                marginLeft: 8,
+                minWidth: 20,
+                height: 20,
+                padding: "0 6px",
+                borderRadius: 999,
+                background: "#e53935",
+                color: "white",
+                fontSize: 12,
+                fontWeight: 700,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                lineHeight: 1,
+              }}
+            >
+              {requestsCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -1075,12 +1116,26 @@ const AdminDashboard = () => {
                     </td>
                     <td>
                       <div className="actions" style={{ justifyContent: "flex-end" }}>
-                        <button className="primary" onClick={() => handleApproveRequest(request._id)}>
-                          Approve
-                        </button>
-                        <button className="danger" onClick={() => handleRejectRequest(request._id)}>
-                          Reject
-                        </button>
+                          <button
+                            className="primary"
+                            onClick={() => handleApproveRequest(request._id)}
+                            disabled={approvingRequestId === request._id || rejectingRequestId === request._id}
+                          >
+                            {approvingRequestId === request._id ? "Approving..." : "Approve"}
+                          </button>
+                          <button
+                            className="danger"
+                            onClick={() => handleRejectRequest(request._id)}
+                            disabled={approvingRequestId === request._id || rejectingRequestId === request._id}
+                          >
+                            {rejectingRequestId === request._id ? "Rejecting..." : "Reject"}
+                          </button>
+                          {(approvingRequestId === request._id || rejectingRequestId === request._id) && (
+                            <div className="loading-spinner" style={{ width: 16, height: 16, borderWidth: 2, marginLeft: 8 }}></div>
+                          )}
+                          {requestSuccessId === request._id && (
+                            <span style={{ color: "var(--success)", fontWeight: 600, marginLeft: 8 }}>✓ Done</span>
+                          )}
                       </div>
                     </td>
                   </tr>

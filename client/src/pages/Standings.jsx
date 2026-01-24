@@ -159,6 +159,10 @@ const Standings = () => {
   };
 
   useEffect(() => {
+    // Clear cached standings to avoid showing stale/duplicate entries after data model changes
+    localStorage.removeItem('individualStandings');
+    localStorage.removeItem('teamStandings');
+
     let mounted = true;
 
     const initialLoad = async () => {

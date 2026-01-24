@@ -24,16 +24,30 @@ export async function refreshHandleData(handle, options = {}) {
       getSolvedProblems(handle)
     ]);
 
-    // Deduplicate problems by contest+index, keeping the earliest solve time
-    const dedupedProblemsMap = new Map();
+    // Deduplicate problems; treat Div1/Div2 mirrored problems (contestId diff 1 and same name) as the same
+    const areSameProblem = (a, b) => {
+      const nameMatch = (a.name || "").toLowerCase() === (b.name || "").toLowerCase();
+      const contestClose =
+        Number.isFinite(a.contestId) &&
+        Number.isFinite(b.contestId) &&
+        Math.abs(a.contestId - b.contestId) <= 1;
+      const sameIndex = a.index === b.index && a.contestId === b.contestId;
+      return sameIndex || (nameMatch && contestClose);
+    };
+
+    const uniqueSolved = [];
     for (const problem of solvedProblems) {
-      const key = `${problem.contestId}-${problem.index}`;
-      const existing = dedupedProblemsMap.get(key);
-      if (!existing || (problem.solvedAtSeconds && problem.solvedAtSeconds < existing.solvedAtSeconds)) {
-        dedupedProblemsMap.set(key, problem);
+      const existing = uniqueSolved.find((p) => areSameProblem(p, problem));
+      if (!existing) {
+        uniqueSolved.push(problem);
+      } else if (
+        problem.solvedAtSeconds &&
+        (!existing.solvedAtSeconds || problem.solvedAtSeconds < existing.solvedAtSeconds)
+      ) {
+        // Keep earliest solve time
+        Object.assign(existing, problem);
       }
     }
-    const uniqueSolved = Array.from(dedupedProblemsMap.values());
 
     // Update meta information
     const existingMeta = await HandleMeta.findOne({ handle }).lean();

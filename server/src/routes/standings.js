@@ -69,15 +69,30 @@ router.get("/standings", async (req, res) => {
           if (needsRefresh) {
             const userInfo = await getUserInfo(entry.handle);
             const solvedRaw = await getSolvedProblems(entry.handle);
-            const dedupedMap = new Map();
+            const areSameProblem = (a, b) => {
+              const nameMatch = (a.name || "").toLowerCase() === (b.name || "").toLowerCase();
+              const contestClose =
+                Number.isFinite(a.contestId) &&
+                Number.isFinite(b.contestId) &&
+                Math.abs(a.contestId - b.contestId) <= 1;
+              const sameIndex = a.index === b.index && a.contestId === b.contestId;
+              return sameIndex || (nameMatch && contestClose);
+            };
+
+            const dedupedList = [];
             for (const problem of solvedRaw) {
-              const key = `${problem.contestId}-${problem.index}`;
-              const existing = dedupedMap.get(key);
-              if (!existing || (problem.solvedAtSeconds && problem.solvedAtSeconds < existing.solvedAtSeconds)) {
-                dedupedMap.set(key, problem);
+              const existing = dedupedList.find((p) => areSameProblem(p, problem));
+              if (!existing) {
+                dedupedList.push(problem);
+              } else if (
+                problem.solvedAtSeconds &&
+                (!existing.solvedAtSeconds || problem.solvedAtSeconds < existing.solvedAtSeconds)
+              ) {
+                Object.assign(existing, problem);
               }
             }
-            solvedProblems = Array.from(dedupedMap.values());
+
+            solvedProblems = dedupedList;
             maxRating = userInfo.maxRating;
             totalSolved = solvedProblems.length;
 

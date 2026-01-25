@@ -268,15 +268,28 @@ const Standings = () => {
 
   return (
     <div className="container">
-      <div className="hero">
-        <span className="badge">SGIPC Competitive Programming Club</span>
-        <h1>Practice Standings</h1>
-        <p>
-          Live rankings based on Codeforces practice and VJudge team contests
-        </p>
-        <button className="btn secondary" onClick={openRequestModal} style={{ marginTop: 16 }}>
-          Request to Join Standings
-        </button>
+      <div
+        className="hero"
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24, flexWrap: "wrap" }}
+      >
+        <div>
+          <span className="badge">SGIPC Competitive Programming Club</span>
+          <h1>Practice Standings</h1>
+          <p>
+            Live rankings based on Codeforces practice and VJudge team contests
+          </p>
+          <button className="btn secondary" onClick={openRequestModal} style={{ marginTop: 16 }}>
+            Request to Join Standings
+          </button>
+        </div>
+        <div style={{ flexShrink: 0 }}>
+          <img
+            src="/logo.png"
+            alt="SGIPC logo"
+            style={{ width: 96, height: 96, objectFit: "contain", filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.1))" }}
+            loading="lazy"
+          />
+        </div>
       </div>
 
       <div className="tabs">

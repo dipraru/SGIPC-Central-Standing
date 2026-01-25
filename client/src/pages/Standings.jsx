@@ -27,6 +27,35 @@ const Standings = () => {
   const [requestError, setRequestError] = useState("");
   const [requestSuccess, setRequestSuccess] = useState("");
   const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [lastFetchAt, setLastFetchAt] = useState(null);
+  const [lastTeamFetchAt, setLastTeamFetchAt] = useState(null);
+  const CACHE_VERSION = "v2";
+  const CACHE_TTL_MS = 2 * 60 * 1000;
+  const MAX_CACHE_AGE_MS = 30 * 60 * 1000;
+
+  const readCache = (key) => {
+    const cached = localStorage.getItem(key);
+    if (!cached) return null;
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed?.version !== CACHE_VERSION) return null;
+      const timestamp = parsed?.timestamp;
+      if (!timestamp) return null;
+      const age = Date.now() - timestamp;
+      if (age > MAX_CACHE_AGE_MS) return null;
+      return { ...parsed, isStale: age > CACHE_TTL_MS };
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const writeCache = (key, payload) => {
+    localStorage.setItem(
+      key,
+      JSON.stringify({ ...payload, version: CACHE_VERSION, timestamp: Date.now() })
+    );
+  };
+
   const eloModeLabels = {
     normal: "Classic Elo",
     "gain-only": "Gain-only",
@@ -146,12 +175,10 @@ const Standings = () => {
       const data = await getStandings();
       setStandings(data);
       setLastUpdated(new Date());
+      setLastFetchAt(Date.now());
       setError("");
       // Cache in localStorage
-      localStorage.setItem('individualStandings', JSON.stringify({
-        data,
-        timestamp: Date.now()
-      }));
+      writeCache("individualStandings", { data });
       return true;
     } catch (err) {
       return false;
@@ -159,39 +186,29 @@ const Standings = () => {
   };
 
   useEffect(() => {
-
     let mounted = true;
 
     const initialLoad = async () => {
       // Try loading from cache first
-      const cached = localStorage.getItem('individualStandings');
+      const cached = readCache('individualStandings');
       if (cached) {
-        try {
-          const { data, timestamp } = JSON.parse(cached);
-          const age = Date.now() - timestamp;
-          // Use cache if less than 24 hours old
-          if (age < 24 * 60 * 60 * 1000) {
-            setStandings(data);
-            setLastUpdated(new Date(timestamp));
-            setLoading(false);
-            fetchStandingsData().then(() => {
-              if (mounted) setLoading(false);
-            });
-            return;
-          }
-        } catch (e) {
-          // Ignore cache errors
+        setStandings(cached.data || []);
+        setLastUpdated(new Date(cached.timestamp));
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+
+      if (!cached || cached.isStale) {
+        if (!cached || (cached.data || []).length === 0) {
+          setLoading(true);
+        }
+        const success = await fetchStandingsData();
+        if (mounted && !success && !cached) {
+          setError("Unable to load standings");
         }
       }
 
-      setLoading(true);
-      let success = false;
-      while (mounted && !success) {
-        success = await fetchStandingsData();
-        if (!success) {
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-        }
-      }
       if (mounted) setLoading(false);
     };
 
@@ -206,58 +223,34 @@ const Standings = () => {
     let active = true;
     const loadTeamStandings = async () => {
       // Try loading from cache first
-      const cached = localStorage.getItem('teamStandings');
+      const cached = readCache('teamStandings');
       if (cached) {
-        try {
-          const { data, eloMode, timestamp } = JSON.parse(cached);
-          const age = Date.now() - timestamp;
-          // Use cache if less than 24 hours old
-          if (age < 24 * 60 * 60 * 1000) {
-            setTeamStandings(data.standings || []);
-            setEloMode(data.eloMode || eloMode || "normal");
-            setTeamLoading(false);
-            setTeamError("");
-            getVjudgeStandings()
-              .then((fresh) => {
-                if (!active) return;
-                setTeamStandings(fresh.standings || []);
-                setEloMode(fresh.eloMode || "normal");
-                setTeamError("");
-                localStorage.setItem('teamStandings', JSON.stringify({
-                  data: fresh,
-                  eloMode: fresh.eloMode,
-                  timestamp: Date.now()
-                }));
-              })
-              .catch(() => {
-                if (!active) return;
-                setTeamError("Unable to load team standings");
-              });
-            return;
-          }
-        } catch (e) {
-          // Ignore cache errors
-        }
+        const { data, eloMode: cachedElo } = cached;
+        setTeamStandings(data?.standings || []);
+        setEloMode(data?.eloMode || cachedElo || "normal");
+        setTeamLoading(false);
+        setTeamError("");
+      } else {
+        setTeamLoading(true);
       }
 
-      try {
-        setTeamLoading(true);
-        const data = await getVjudgeStandings();
-        if (!active) return;
-        setTeamStandings(data.standings || []);
-        setEloMode(data.eloMode || "normal");
-        setTeamError("");
-        // Cache in localStorage
-        localStorage.setItem('teamStandings', JSON.stringify({
-          data,
-          eloMode: data.eloMode,
-          timestamp: Date.now()
-        }));
-      } catch (err) {
-        if (!active) return;
-        setTeamError("Unable to load team standings");
-      } finally {
-        if (active) setTeamLoading(false);
+      if (!cached || cached.isStale) {
+        try {
+          const data = await getVjudgeStandings();
+          if (!active) return;
+          setTeamStandings(data.standings || []);
+          setEloMode(data.eloMode || "normal");
+          setTeamError("");
+          setLastTeamFetchAt(Date.now());
+          writeCache("teamStandings", { data, eloMode: data.eloMode });
+        } catch (err) {
+          if (!active) return;
+          if (!cached) {
+            setTeamError("Unable to load team standings");
+          }
+        } finally {
+          if (active) setTeamLoading(false);
+        }
       }
     };
     loadTeamStandings();
@@ -265,6 +258,38 @@ const Standings = () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      if (!lastFetchAt || Date.now() - lastFetchAt > CACHE_TTL_MS) {
+        fetchStandingsData();
+      }
+      if (!lastTeamFetchAt || Date.now() - lastTeamFetchAt > CACHE_TTL_MS) {
+        getVjudgeStandings()
+          .then((data) => {
+            setTeamStandings(data.standings || []);
+            setEloMode(data.eloMode || "normal");
+            setTeamError("");
+            setLastTeamFetchAt(Date.now());
+            writeCache("teamStandings", { data, eloMode: data.eloMode });
+          })
+          .catch(() => {});
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        handleFocus();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [lastFetchAt, lastTeamFetchAt]);
 
   return (
     <div className="container">

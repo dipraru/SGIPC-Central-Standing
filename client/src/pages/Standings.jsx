@@ -177,9 +177,14 @@ const Standings = () => {
     }
   };
 
-  const fetchStandingsData = async () => {
+  const fetchStandingsData = async (timeoutMs = 10000) => {
     try {
-      const data = await getStandings();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      
+      const data = await getStandings({ signal: controller.signal });
+      clearTimeout(timeoutId);
+      
       setStandings(data);
       setLastUpdated(new Date());
       setLastFetchAt(Date.now());
@@ -208,16 +213,29 @@ const Standings = () => {
       }
 
       if (!cached || cached.isStale) {
-        if (!cached || (cached.data || []).length === 0) {
-          setLoading(true);
-        }
-        const success = await fetchStandingsData();
-        if (mounted && !success && !cached) {
-          setError("Unable to load standings");
+        // Set a loading timeout to show cached data if fetch takes too long
+        const loadingTimeout = setTimeout(() => {
+          if (mounted && cached) {
+            setLoading(false);
+            setError("Using cached data (server slow to respond)");
+          }
+        }, 8000);
+
+        const success = await fetchStandingsData(10000);
+        clearTimeout(loadingTimeout);
+        
+        if (mounted) {
+          if (!success) {
+            if (cached) {
+              // Keep showing cached data, just update error message
+              setError("Using cached data (unable to refresh)");
+            } else {
+              setError("Unable to load standings");
+            }
+          }
+          setLoading(false);
         }
       }
-
-      if (mounted) setLoading(false);
     };
 
     initialLoad();
@@ -243,8 +261,22 @@ const Standings = () => {
       }
 
       if (!cached || cached.isStale) {
+        // Set a loading timeout to show cached data if fetch takes too long
+        const loadingTimeout = setTimeout(() => {
+          if (active && cached) {
+            setTeamLoading(false);
+            setTeamError("Using cached data (server slow to respond)");
+          }
+        }, 8000);
+
         try {
-          const data = await getVjudgeStandings();
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          
+          const data = await getVjudgeStandings({ signal: controller.signal });
+          clearTimeout(timeoutId);
+          clearTimeout(loadingTimeout);
+          
           if (!active) return;
           setTeamStandings(data.standings || []);
           setEloMode(data.eloMode || "normal");
@@ -252,8 +284,11 @@ const Standings = () => {
           setLastTeamFetchAt(Date.now());
           writeCache("teamStandings", { data, eloMode: data.eloMode });
         } catch (err) {
+          clearTimeout(loadingTimeout);
           if (!active) return;
-          if (!cached) {
+          if (cached) {
+            setTeamError("Using cached data (unable to refresh)");
+          } else {
             setTeamError("Unable to load team standings");
           }
         } finally {
@@ -270,18 +305,26 @@ const Standings = () => {
   useEffect(() => {
     const handleFocus = () => {
       if (!lastFetchAt || Date.now() - lastFetchAt > CACHE_TTL_MS) {
-        fetchStandingsData();
+        fetchStandingsData(10000);
       }
       if (!lastTeamFetchAt || Date.now() - lastTeamFetchAt > CACHE_TTL_MS) {
-        getVjudgeStandings()
-          .then((data) => {
+        (async () => {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
+            const data = await getVjudgeStandings({ signal: controller.signal });
+            clearTimeout(timeoutId);
+            
             setTeamStandings(data.standings || []);
             setEloMode(data.eloMode || "normal");
             setTeamError("");
             setLastTeamFetchAt(Date.now());
             writeCache("teamStandings", { data, eloMode: data.eloMode });
-          })
-          .catch(() => {});
+          } catch (err) {
+            // Silently fail on background refresh
+          }
+        })();
       }
     };
 

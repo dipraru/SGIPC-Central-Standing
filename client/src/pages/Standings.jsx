@@ -38,12 +38,19 @@ const Standings = () => {
     if (!cached) return null;
     try {
       const parsed = JSON.parse(cached);
-      if (parsed?.version !== CACHE_VERSION) return null;
-      const timestamp = parsed?.timestamp;
-      if (!timestamp) return null;
+      if (!parsed?.data) return null;
+
+      const hasVersion = parsed?.version === CACHE_VERSION;
+      const timestamp = parsed?.timestamp || Date.now();
       const age = Date.now() - timestamp;
+
       if (age > MAX_CACHE_AGE_MS) return null;
-      return { ...parsed, isStale: age > CACHE_TTL_MS };
+
+      return {
+        ...parsed,
+        timestamp,
+        isStale: !hasVersion || age > CACHE_TTL_MS,
+      };
     } catch (e) {
       return null;
     }
@@ -194,6 +201,7 @@ const Standings = () => {
       if (cached) {
         setStandings(cached.data || []);
         setLastUpdated(new Date(cached.timestamp));
+        setError("");
         setLoading(false);
       } else {
         setLoading(true);

@@ -186,16 +186,20 @@ export async function refreshHandleData(handle, options = {}) {
   }
 }
 
-// Function to refresh all handles
-export async function refreshAllHandles() {
-  console.log("Starting daily refresh for all handles...");
+// Function to refresh all handles. Defaults to incremental refresh to stay within
+// serverless time limits; use fullHistory=true only when bootstrapping new data.
+export async function refreshAllHandles(options = {}) {
+  const { fullHistory = false } = options;
+  console.log(
+    `Starting refresh for all handles (fullHistory=${fullHistory ? "yes" : "no"})...`
+  );
   const handles = await Handle.find().select("handle").lean();
-  
+
   for (const { handle } of handles) {
-    await refreshHandleData(handle, { fullHistory: true });
+    await refreshHandleData(handle, { fullHistory });
   }
-  
-  console.log("Daily refresh completed for all handles");
+
+  console.log("Refresh completed for all handles");
 }
 
 // Schedule daily refresh at midnight (00:00)

@@ -68,7 +68,9 @@ app.get("/api/cron/refresh", async (req, res) => {
 
   try {
     await initializeApp();
-    await refreshAllHandles();
+    // Use incremental refresh by default to avoid serverless timeouts; allow overriding via ?full=1
+    const fullHistory = req.query.full === "1";
+    await refreshAllHandles({ fullHistory });
     res.json({ status: "ok" });
   } catch (error) {
     console.error("Cron refresh error:", error);
@@ -88,9 +90,12 @@ app.get("/api/cron/refresh-chunk", async (req, res) => {
 
   try {
     await initializeApp();
-    const handles = await import("../server/src/models/Handle.js").then((m) => m.Handle.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean());
+    const fullHistory = req.query.full === "1";
+    const handles = await import("../server/src/models/Handle.js").then((m) =>
+      m.Handle.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean()
+    );
     for (const h of handles) {
-      await refreshHandleData(h.handle, { fullHistory: true });
+      await refreshHandleData(h.handle, { fullHistory });
     }
     res.json({ status: "ok", processed: handles.map((h) => h.handle), nextSkip: skip + handles.length });
   } catch (error) {

@@ -147,7 +147,7 @@ const Standings = () => {
       setStandings(data);
       setLastUpdated(new Date());
       setError("");
-      // Cache in localStorage
+      // Cache in localStorage with short TTL (5 minutes)
       localStorage.setItem('individualStandings', JSON.stringify({
         data,
         timestamp: Date.now()
@@ -169,8 +169,8 @@ const Standings = () => {
         try {
           const { data, timestamp } = JSON.parse(cached);
           const age = Date.now() - timestamp;
-          // Use cache if less than 24 hours old
-          if (age < 24 * 60 * 60 * 1000) {
+          // Use cache if less than 5 minutes old
+          if (age < 5 * 60 * 1000) {
             setStandings(data);
             setLastUpdated(new Date(timestamp));
             setLoading(false);
@@ -185,13 +185,7 @@ const Standings = () => {
       }
 
       setLoading(true);
-      let success = false;
-      while (mounted && !success) {
-        success = await fetchStandingsData();
-        if (!success) {
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-        }
-      }
+      const success = await fetchStandingsData();
       if (mounted) setLoading(false);
     };
 

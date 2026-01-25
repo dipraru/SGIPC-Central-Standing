@@ -38,13 +38,6 @@ router.get("/standings", async (req, res) => {
 
         try {
           const meta = await HandleMeta.findOne({ handle: entry.handle }).lean();
-          if (!meta || meta.lastUpdateDate !== todayKey) {
-            try {
-              await refreshHandleData(entry.handle, { fullHistory: true });
-            } catch (refreshError) {
-              console.error(`Refresh failed for ${entry.handle}:`, refreshError);
-            }
-          }
 
           let historyEntries = await RatingHistory.find({
             handle: entry.handle,
@@ -56,11 +49,8 @@ router.get("/standings", async (req, res) => {
           const historyComplete = lastSixDates.every((dateKey) =>
             historyMapFromDb.has(dateKey)
           );
-          const needsRefresh =
-            forceRefresh ||
-            !historyComplete ||
-            !meta ||
-            meta.lastUpdateDate !== todayKey;
+          // Keep API fast: only refresh on explicit request. Daily cron/backfill keeps data fresh.
+          const needsRefresh = forceRefresh;
 
           let maxRating = 0;
           let solvedProblems = [];

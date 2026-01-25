@@ -4,11 +4,7 @@ import { DailySolved } from "../models/DailySolved.js";
 import { HandleMeta } from "../models/HandleMeta.js";
 import { PendingProblem } from "../models/PendingProblem.js";
 import { RatingHistory } from "../models/RatingHistory.js";
-import { getSolvedProblems, getUserInfo } from "../services/codeforces.js";
-import { refreshHandleData } from "../services/scheduler.js";
 import {
-  calculateEloScore,
-  computeRatingUpTo,
   startOfLocalDayFromDateKey,
   toLocalDateKey,
 } from "../services/elo.js";
@@ -34,165 +30,15 @@ router.get("/standings", async (req, res) => {
           toLocalDateKey(targetEndSeconds - (5 - i) * 86400)
         );
         const lastFiveDates = lastSixDates.slice(1);
-        const forceRefresh = req.query.refresh === "1";
 
         try {
+          // Only read from database - no external API calls or refreshes
           const meta = await HandleMeta.findOne({ handle: entry.handle }).lean();
-          if (!meta || meta.lastUpdateDate !== todayKey) {
-            try {
-              await refreshHandleData(entry.handle, { fullHistory: true });
-            } catch (refreshError) {
-              console.error(`Refresh failed for ${entry.handle}:`, refreshError);
-            }
-          }
 
           let historyEntries = await RatingHistory.find({
             handle: entry.handle,
             date: { $in: lastSixDates },
           }).lean();
-          const historyMapFromDb = new Map(
-            historyEntries.map((item) => [item.date, item])
-          );
-          const historyComplete = lastSixDates.every((dateKey) =>
-            historyMapFromDb.has(dateKey)
-          );
-          const needsRefresh =
-            forceRefresh ||
-            !historyComplete ||
-            !meta ||
-            meta.lastUpdateDate !== todayKey;
-
-          let maxRating = 0;
-          let solvedProblems = [];
-          let totalSolved = meta?.totalSolved ?? 0;
-
-          if (needsRefresh) {
-            const userInfo = await getUserInfo(entry.handle);
-            const solvedRaw = await getSolvedProblems(entry.handle);
-            const areSameProblem = (a, b) => {
-              const nameMatch = (a.name || "").toLowerCase() === (b.name || "").toLowerCase();
-              const contestClose =
-                Number.isFinite(a.contestId) &&
-                Number.isFinite(b.contestId) &&
-                Math.abs(a.contestId - b.contestId) <= 1;
-              const sameIndex = a.index === b.index && a.contestId === b.contestId;
-              return sameIndex || (nameMatch && contestClose);
-            };
-
-            const dedupedList = [];
-            for (const problem of solvedRaw) {
-              const existing = dedupedList.find((p) => areSameProblem(p, problem));
-              if (!existing) {
-                dedupedList.push(problem);
-              } else if (
-                problem.solvedAtSeconds &&
-                (!existing.solvedAtSeconds || problem.solvedAtSeconds < existing.solvedAtSeconds)
-              ) {
-                Object.assign(existing, problem);
-              }
-            }
-
-            solvedProblems = dedupedList;
-            maxRating = userInfo.maxRating;
-            totalSolved = solvedProblems.length;
-
-            const dailySolvedMap = new Map(lastFiveDates.map((dateKey) => [dateKey, []]));
-            const pendingMap = new Map();
-
-            for (const problem of solvedProblems) {
-              if (!problem.solvedAtSeconds || problem.isGym) {
-                continue;
-              }
-              const dateKey = toLocalDateKey(problem.solvedAtSeconds);
-              const daysAgo = Math.floor((nowSeconds - problem.solvedAtSeconds) / 86400);
-
-              if (!problem.rating) {
-                if (daysAgo <= 30) {
-                  pendingMap.set(`${problem.contestId}-${problem.index}`, {
-                    handle: entry.handle,
-                    date: dateKey,
-                    contestId: problem.contestId,
-                    index: problem.index,
-                    name: problem.name,
-                    solvedAtSeconds: problem.solvedAtSeconds,
-                  });
-                }
-                continue;
-              }
-
-              if (dailySolvedMap.has(dateKey)) {
-                dailySolvedMap.get(dateKey).push({
-                  contestId: problem.contestId,
-                  index: problem.index,
-                  name: problem.name,
-                  rating: problem.rating,
-                });
-              }
-            }
-
-            await DailySolved.deleteMany({
-              handle: entry.handle,
-              date: { $nin: lastFiveDates },
-            });
-
-            await Promise.all(
-              lastFiveDates.map((dateKey) =>
-                DailySolved.findOneAndUpdate(
-                  { handle: entry.handle, date: dateKey },
-                  { handle: entry.handle, date: dateKey, problems: dailySolvedMap.get(dateKey) || [] },
-                  { upsert: true, new: true }
-                )
-              )
-            );
-
-            await PendingProblem.deleteMany({
-              handle: entry.handle,
-              date: { $lt: lastSixDates[0] },
-            });
-            await PendingProblem.deleteMany({ handle: entry.handle });
-            if (pendingMap.size > 0) {
-              await PendingProblem.insertMany(Array.from(pendingMap.values()));
-            }
-
-            await RatingHistory.deleteMany({ handle: entry.handle });
-            const historyMap = new Map();
-            for (const dateKey of lastSixDates) {
-              const endSeconds =
-                dateKey === todayKey
-                  ? todayEndSeconds
-                  : startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
-              const computed = computeRatingUpTo({
-                maxRating,
-                solvedProblems,
-                dayEndSeconds: endSeconds,
-              });
-              const created = await RatingHistory.findOneAndUpdate(
-                { handle: entry.handle, date: dateKey },
-                { handle: entry.handle, date: dateKey, rating: computed },
-                { upsert: true, new: true }
-              ).lean();
-              historyMap.set(dateKey, created);
-            }
-
-            await RatingHistory.deleteMany({
-              handle: entry.handle,
-              date: { $nin: lastSixDates },
-            });
-
-            const currentRating = historyMap.get(todayKey)?.rating ?? 1000;
-            await HandleMeta.findOneAndUpdate(
-              { handle: entry.handle },
-              {
-                handle: entry.handle,
-                lastUpdateDate: todayKey,
-                currentRating,
-                totalSolved,
-              },
-              { upsert: true, new: true }
-            );
-
-            historyEntries = Array.from(historyMap.values());
-          }
 
           const historyMap = new Map(
             historyEntries.map((item) => [item.date, item])
@@ -231,131 +77,35 @@ router.get("/standings", async (req, res) => {
             })
             .reverse();
 
-          let metaLatest = await HandleMeta.findOne({ handle: entry.handle }).lean();
-          const currentRating = historyMap.get(todayKey)?.rating ?? metaLatest?.currentRating ?? 1000;
-          let solvedCount = metaLatest?.totalSolved ?? totalSolved;
-          let resolvedMaxRating = maxRating || metaLatest?.maxRating || 0;
+          // Get data from database only - no API calls
+          const currentRating = historyMap.get(todayKey)?.rating ?? meta?.currentRating ?? 1000;
+          const maxRating = meta?.maxRating ?? 0;
+          const solvedCount = meta?.totalSolved ?? 0;
 
-          if (!metaLatest || solvedCount === 0) {
-            // Use cached data if available, only fetch if absolutely necessary
-            solvedCount = metaLatest?.totalSolved || 0;
-            resolvedMaxRating = metaLatest?.maxRating || resolvedMaxRating || 0;
-            
-            if (solvedCount === 0) {
-              const userInfo = await getUserInfo(entry.handle);
-              const solvedAll = await getSolvedProblems(entry.handle);
-              solvedCount = solvedAll.length;
-              resolvedMaxRating = userInfo.maxRating;
-              metaLatest = await HandleMeta.findOneAndUpdate(
-                { handle: entry.handle },
-                {
-                  handle: entry.handle,
-                  lastUpdateDate: metaLatest?.lastUpdateDate ?? todayKey,
-                  currentRating,
-                  maxRating: resolvedMaxRating,
-                  totalSolved: solvedCount,
-                },
-                { upsert: true, new: true }
-              ).lean();
-            }
-          }
-          if (resolvedMaxRating === 0) {
-            const userInfo = await getUserInfo(entry.handle);
-            resolvedMaxRating = userInfo.maxRating || 0;
-            metaLatest = await HandleMeta.findOneAndUpdate(
-              { handle: entry.handle },
-              {
-                handle: entry.handle,
-                lastUpdateDate: metaLatest?.lastUpdateDate ?? todayKey,
-                currentRating,
-                maxRating: resolvedMaxRating,
-                totalSolved: solvedCount,
-              },
-              { upsert: true, new: true }
-            ).lean();
-          }
           return {
             id: entry._id,
             handle: entry.handle,
             name: entry.name || "",
             roll: entry.roll || "",
             batch: entry.batch || "",
-            maxRating: resolvedMaxRating || metaLatest?.maxRating || 0,
-            solvedCount,
+            maxRating: maxRating,
+            solvedCount: solvedCount,
             standingRating: currentRating,
             recentStats: historyStats,
           };
         } catch (error) {
-          const historyEntries = await RatingHistory.find({
-            handle: entry.handle,
-            date: { $in: lastSixDates },
-          }).lean();
-          if (historyEntries.length === 0) {
-            throw error;
-          }
-          const historyMap = new Map(
-            historyEntries.map((item) => [item.date, item])
-          );
-          const solvedEntries = await DailySolved.find({
-            handle: entry.handle,
-            date: { $in: lastFiveDates },
-          }).lean();
-          const solvedMap = new Map(
-            solvedEntries.map((item) => [item.date, item.problems])
-          );
-          const pendingEntries = await PendingProblem.find({
-            handle: entry.handle,
-            date: { $in: lastFiveDates },
-          }).lean();
-          const pendingCountMap = pendingEntries.reduce((acc, item) => {
-            acc.set(item.date, (acc.get(item.date) || 0) + 1);
-            return acc;
-          }, new Map());
-          const historyStats = lastFiveDates
-            .map((dateKey, index) => {
-              const todayItem = historyMap.get(dateKey);
-              const prevDate = lastSixDates[index];
-              const prevItem = historyMap.get(prevDate);
-              const fromRating = prevItem ? prevItem.rating : todayItem?.rating ?? 1000;
-              const toRating = todayItem ? todayItem.rating : fromRating;
-              return {
-                date: dateKey,
-                fromRating,
-                toRating,
-                delta: toRating - fromRating,
-                problems: solvedMap.get(dateKey) || [],
-                pendingCount: pendingCountMap.get(dateKey) || 0,
-              };
-            })
-            .reverse();
-          let metaLatest = await HandleMeta.findOne({ handle: entry.handle }).lean();
-          const currentRating = historyMap.get(todayKey)?.rating ?? metaLatest?.currentRating ?? 1000;
-          let resolvedMaxRating = metaLatest?.maxRating ?? 0;
-          if (resolvedMaxRating === 0) {
-            const userInfo = await getUserInfo(entry.handle);
-            resolvedMaxRating = userInfo.maxRating || 0;
-            metaLatest = await HandleMeta.findOneAndUpdate(
-              { handle: entry.handle },
-              {
-                handle: entry.handle,
-                lastUpdateDate: metaLatest?.lastUpdateDate ?? todayKey,
-                currentRating,
-                maxRating: resolvedMaxRating,
-                totalSolved: metaLatest?.totalSolved ?? 0,
-              },
-              { upsert: true, new: true }
-            ).lean();
-          }
+          // Return minimal data from handle if DB read fails
+          console.error(`Error loading data for ${entry.handle}:`, error.message);
           return {
             id: entry._id,
             handle: entry.handle,
             name: entry.name || "",
             roll: entry.roll || "",
             batch: entry.batch || "",
-            maxRating: resolvedMaxRating || metaLatest?.maxRating || 0,
-            solvedCount: metaLatest?.totalSolved ?? 0,
-            standingRating: currentRating,
-            recentStats: historyStats,
+            maxRating: 0,
+            solvedCount: 0,
+            standingRating: 1000,
+            recentStats: [],
           };
         }
       })

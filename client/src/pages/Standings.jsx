@@ -286,7 +286,7 @@ const Standings = () => {
           <img
             src="/logo.png"
             alt="SGIPC logo"
-            style={{ width: 96, height: 96, objectFit: "contain", filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.1))" }}
+            style={{ width: 120, height: 120, objectFit: "contain", filter: "invert(1) brightness(1000%) drop-shadow(0 2px 6px rgba(0,0,0,0.15))" }}
             loading="lazy"
           />
         </div>

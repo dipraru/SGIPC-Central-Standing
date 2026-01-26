@@ -17,7 +17,9 @@
     { "path": "/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=30&limit=5", "schedule": "30 18 * * *" },
     { "path": "/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=35&limit=5", "schedule": "35 18 * * *" },
     { "path": "/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=40&limit=5", "schedule": "40 18 * * *" },
-    { "path": "/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=45&limit=5", "schedule": "45 18 * * *" }
+    { "path": "/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=45&limit=5", "schedule": "45 18 * * *" },
+    { "path": "/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=50&limit=5", "schedule": "50 18 * * *" },
+    { "path": "/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=55&limit=5", "schedule": "55 18 * * *" }
   ],
   "routes": [
     { "handle": "filesystem" },

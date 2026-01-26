@@ -51,12 +51,6 @@ export async function refreshHandleData(handle, options = {}) {
 
     // Update meta information
     const existingMeta = await HandleMeta.findOne({ handle }).lean();
-    const lastUpdateDate = existingMeta?.lastUpdateDate || "";
-    if (lastUpdateDate === targetDateKey && !fullHistory) {
-      console.log(`Handle ${handle} already updated for ${targetDateKey}; skipping`);
-      return;
-    }
-
     const totalSolved = uniqueSolved.length;
 
     // Update rating history for last 6 days
@@ -126,39 +120,23 @@ export async function refreshHandleData(handle, options = {}) {
     }
 
     let currentRating = 1000;
-    if (fullHistory || !existingMeta) {
-      const historyMap = new Map();
-      for (const dateKey of lastSixDates) {
-        const endSeconds = startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
-        const ratingForDate = computeRatingUpTo({
-          maxRating: userInfo.maxRating,
-          solvedProblems: uniqueSolved,
-          dayEndSeconds: endSeconds,
-        });
-        const created = await RatingHistory.findOneAndUpdate(
-          { handle, date: dateKey },
-          { handle, date: dateKey, rating: ratingForDate },
-          { upsert: true, new: true }
-        ).lean();
-        historyMap.set(dateKey, created);
-      }
-      currentRating = historyMap.get(targetDateKey)?.rating ?? 1000;
-    } else {
-      // Only compute the last completed day's rating; keep previous days as-is
-      const dayRating = computeRatingUpTo({
+    // Always recalculate all 6 days to ensure fresh data
+    const historyMap = new Map();
+    for (const dateKey of lastSixDates) {
+      const endSeconds = startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
+      const ratingForDate = computeRatingUpTo({
         maxRating: userInfo.maxRating,
         solvedProblems: uniqueSolved,
-        dayEndSeconds: targetEndSeconds,
+        dayEndSeconds: endSeconds,
       });
-
-      await RatingHistory.findOneAndUpdate(
-        { handle, date: targetDateKey },
-        { handle, date: targetDateKey, rating: dayRating },
+      const created = await RatingHistory.findOneAndUpdate(
+        { handle, date: dateKey },
+        { handle, date: dateKey, rating: ratingForDate },
         { upsert: true, new: true }
-      );
-
-      currentRating = dayRating ?? 1000;
+      ).lean();
+      historyMap.set(dateKey, created);
     }
+    currentRating = historyMap.get(targetDateKey)?.rating ?? 1000;
 
     await HandleMeta.findOneAndUpdate(
       { handle },

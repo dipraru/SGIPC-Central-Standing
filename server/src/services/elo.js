@@ -46,7 +46,7 @@ const getEloDelta = ({ current, opponent, maxRating, timeWeight }) => {
 };
 
 export const computeRatingUpTo = ({ maxRating, solvedProblems, dayEndSeconds }) => {
-  const safeMax = Number.isFinite(maxRating) ? maxRating : 0;
+  const safeMax = Number.isFinite(maxRating) ? Math.max(maxRating, 800) : 800;
   const windowStart = dayEndSeconds - THIRTY_DAYS * 86400;
   const scoped = solvedProblems
     .filter(
@@ -79,7 +79,7 @@ export const computeRatingUpTo = ({ maxRating, solvedProblems, dayEndSeconds }) 
 
 export const calculateEloScore = ({ maxRating, solvedProblems }) => {
   let current = 1000;
-  const safeMax = Number.isFinite(maxRating) ? maxRating : 0;
+  const safeMax = Number.isFinite(maxRating) ? Math.max(maxRating, 800) : 800;
   const nowSeconds = Math.floor(Date.now() / 1000);
   const ordered = [...solvedProblems].sort(
     (a, b) => (a.solvedAtSeconds || 0) - (b.solvedAtSeconds || 0)
@@ -110,7 +110,7 @@ export const calculateEloScore = ({ maxRating, solvedProblems }) => {
 };
 
 export const buildRecentStats = ({ maxRating, solvedProblems }) => {
-  const safeMax = Number.isFinite(maxRating) ? maxRating : 0;
+  const safeMax = Number.isFinite(maxRating) ? Math.max(maxRating, 800) : 800;
   const nowSeconds = Math.floor(Date.now() / 1000);
   const todayKey = toLocalDateKey(nowSeconds);
   const recentDays = Array.from({ length: FIVE_DAYS }, (_, index) => {

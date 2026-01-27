@@ -1,0 +1,80 @@
+name: Daily Database Refresh
+
+on:
+  schedule:
+    # Runs at 18:00 UTC daily (12:00 AM Bangladesh time)
+    - cron: '0 18 * * *'
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  refresh-standings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh chunk 0-4
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=0&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 5-9
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=5&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 10-14
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=10&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 15-19
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=15&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 20-24
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=20&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 25-29
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=25&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 30-34
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=30&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 35-39
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=35&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 40-44
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=40&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 45-49
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=45&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 50-54
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=50&limit=5'
+        
+      - name: Wait 30s
+        run: sleep 30
+        
+      - name: Refresh chunk 55-59
+        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=55&limit=5'

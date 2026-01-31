@@ -29,6 +29,8 @@ const Standings = () => {
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [lastFetchAt, setLastFetchAt] = useState(null);
   const [lastTeamFetchAt, setLastTeamFetchAt] = useState(null);
+  const [selectedBatches, setSelectedBatches] = useState([]);
+  const [batchFilterOpen, setBatchFilterOpen] = useState(false);
   const CACHE_VERSION = "v2";
   const CACHE_TTL_MS = 2 * 60 * 1000;
   const MAX_CACHE_AGE_MS = 30 * 60 * 1000;
@@ -84,6 +86,54 @@ const Standings = () => {
     if (rating < 2400) return { level: "Pushing", class: "pushing" };
     if (rating < 3000) return { level: "Hardcore", class: "hardcore" };
     return { level: "CompetingWithAliens", class: "aliens" };
+  };
+
+  // Extract last 2 digits from batch string (e.g., "21" from "2021", "2k21", "21")
+  const extractBatchDigits = (batchStr) => {
+    if (!batchStr) return null;
+    const match = batchStr.match(/(\d{2})$/);
+    return match ? match[1] : null;
+  };
+
+  // Normalize batch to format like "2K21"
+  const normalizeBatch = (batchStr) => {
+    const digits = extractBatchDigits(batchStr);
+    return digits ? `2K${digits}` : null;
+  };
+
+  // Get all unique batches from standings
+  const getAvailableBatches = () => {
+    const batchSet = new Set();
+    standings.forEach((row) => {
+      const normalized = normalizeBatch(row.batch);
+      if (normalized) batchSet.add(normalized);
+    });
+    return Array.from(batchSet).sort();
+  };
+
+  // Filter standings by selected batches
+  const getFilteredStandings = () => {
+    if (selectedBatches.length === 0) return standings;
+    
+    return standings.filter((row) => {
+      const rowDigits = extractBatchDigits(row.batch);
+      if (!rowDigits) return false;
+      
+      return selectedBatches.some((selectedBatch) => {
+        const selectedDigits = extractBatchDigits(selectedBatch);
+        return selectedDigits === rowDigits;
+      });
+    });
+  };
+
+  const toggleBatch = (batch) => {
+    setSelectedBatches((prev) =>
+      prev.includes(batch) ? prev.filter((b) => b !== batch) : [...prev, batch]
+    );
+  };
+
+  const clearBatchFilter = () => {
+    setSelectedBatches([]);
   };
 
   const openActivityModal = (handle) => {
@@ -397,6 +447,99 @@ const Standings = () => {
             )}
           </div>
 
+          {/* Batch Filter */}
+          {!loading && !error && standings.length > 0 && getAvailableBatches().length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <button
+                  className="btn secondary sm"
+                  onClick={() => setBatchFilterOpen(!batchFilterOpen)}
+                  style={{ display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  <span>🎓</span>
+                  <span>Filter by Batch</span>
+                  <span style={{ fontSize: 11, opacity: 0.7 }}>
+                    {selectedBatches.length > 0 ? `(${selectedBatches.length})` : ""}
+                  </span>
+                </button>
+                {selectedBatches.length > 0 && (
+                  <>
+                    {selectedBatches.map((batch) => (
+                      <span
+                        key={batch}
+                        className="badge"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          cursor: "pointer",
+                          backgroundColor: "var(--primary)",
+                          color: "white",
+                        }}
+                        onClick={() => toggleBatch(batch)}
+                      >
+                        {batch}
+                        <span style={{ fontSize: 16, lineHeight: 1 }}>×</span>
+                      </span>
+                    ))}
+                    <button
+                      className="btn sm"
+                      onClick={clearBatchFilter}
+                      style={{ fontSize: 12, padding: "4px 10px" }}
+                    >
+                      Clear All
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {batchFilterOpen && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: 16,
+                    backgroundColor: "var(--gray-50)",
+                    borderRadius: 8,
+                    border: "1px solid var(--gray-200)",
+                  }}
+                >
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                    {getAvailableBatches().map((batch) => (
+                      <label
+                        key={batch}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          cursor: "pointer",
+                          padding: "6px 12px",
+                          backgroundColor: selectedBatches.includes(batch)
+                            ? "var(--primary-light)"
+                            : "white",
+                          border: `2px solid ${
+                            selectedBatches.includes(batch) ? "var(--primary)" : "var(--gray-300)"
+                          }`,
+                          borderRadius: 6,
+                          transition: "all 0.2s",
+                          fontSize: 14,
+                          fontWeight: 500,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedBatches.includes(batch)}
+                          onChange={() => toggleBatch(batch)}
+                          style={{ cursor: "pointer" }}
+                        />
+                        <span>{batch}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {loading && (
             <div className="empty-state">
               <div className="loading-spinner" style={{ borderTopColor: "var(--primary)" }}></div>
@@ -455,7 +598,7 @@ const Standings = () => {
                 </tr>
               </thead>
               <tbody>
-                {standings.map((row, index) => (
+                {getFilteredStandings().map((row, index) => (
                   <React.Fragment key={row.id}>
                     <tr>
                       <td>

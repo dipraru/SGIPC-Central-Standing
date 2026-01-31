@@ -31,6 +31,7 @@ const Standings = () => {
   const [lastTeamFetchAt, setLastTeamFetchAt] = useState(null);
   const [selectedBatches, setSelectedBatches] = useState([]);
   const [batchFilterOpen, setBatchFilterOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const CACHE_VERSION = "v2";
   const CACHE_TTL_MS = 2 * 60 * 1000;
   const MAX_CACHE_AGE_MS = 30 * 60 * 1000;
@@ -123,6 +124,20 @@ const Standings = () => {
         const selectedDigits = extractBatchDigits(selectedBatch);
         return selectedDigits === rowDigits;
       });
+    });
+  };
+
+  // Filter by search query (name or roll)
+  const getSearchFilteredStandings = () => {
+    const batchFiltered = getFilteredStandings();
+    
+    if (!searchQuery.trim()) return batchFiltered;
+    
+    const query = searchQuery.toLowerCase().trim();
+    return batchFiltered.filter((row) => {
+      const nameMatch = (row.name || "").toLowerCase().includes(query);
+      const rollMatch = (row.roll || "").toLowerCase().includes(query);
+      return nameMatch || rollMatch;
     });
   };
 
@@ -540,6 +555,69 @@ const Standings = () => {
             </div>
           )}
 
+          {/* Search Filter */}
+          {!loading && !error && standings.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ position: "relative", maxWidth: 400 }}>
+                <input
+                  type="text"
+                  placeholder="Search by Name or Roll..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 16px 10px 40px",
+                    fontSize: 14,
+                    border: "2px solid var(--gray-300)",
+                    borderRadius: 8,
+                    outline: "none",
+                    transition: "border-color 0.2s",
+                  }}
+                  onFocus={(e) => (e.target.style.borderColor = "var(--primary)")}
+                  onBlur={(e) => (e.target.style.borderColor = "var(--gray-300)")}
+                />
+                <span
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    fontSize: 18,
+                    color: "var(--gray-500)",
+                  }}
+                >
+                  🔍
+                </span>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    style={{
+                      position: "absolute",
+                      right: 8,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      fontSize: 20,
+                      color: "var(--gray-500)",
+                      cursor: "pointer",
+                      padding: "4px 8px",
+                      lineHeight: 1,
+                    }}
+                    title="Clear search"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+              {searchQuery && (
+                <p style={{ marginTop: 8, fontSize: 13, color: "var(--gray-600)" }}>
+                  Found {getSearchFilteredStandings().length} result{getSearchFilteredStandings().length !== 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
+          )}
+
           {loading && (
             <div className="empty-state">
               <div className="loading-spinner" style={{ borderTopColor: "var(--primary)" }}></div>
@@ -598,7 +676,7 @@ const Standings = () => {
                 </tr>
               </thead>
               <tbody>
-                {getFilteredStandings().map((row, index) => (
+                {getSearchFilteredStandings().map((row, index) => (
                   <React.Fragment key={row.id}>
                     <tr>
                       <td>

@@ -557,64 +557,66 @@ const Standings = () => {
 
           {/* Search Filter */}
           {!loading && !error && standings.length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ position: "relative", maxWidth: 400 }}>
-                <input
-                  type="text"
-                  placeholder="Search by Name or Roll..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "10px 16px 10px 40px",
-                    fontSize: 14,
-                    border: "2px solid var(--gray-300)",
-                    borderRadius: 8,
-                    outline: "none",
-                    transition: "border-color 0.2s",
-                  }}
-                  onFocus={(e) => (e.target.style.borderColor = "var(--primary)")}
-                  onBlur={(e) => (e.target.style.borderColor = "var(--gray-300)")}
-                />
-                <span
-                  style={{
-                    position: "absolute",
-                    left: 12,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    fontSize: 18,
-                    color: "var(--gray-500)",
-                  }}
-                >
-                  🔍
-                </span>
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
+            <div style={{ marginBottom: 24, display: "flex", justifyContent: "flex-end" }}>
+              <div style={{ width: "100%", maxWidth: 400 }}>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type="text"
+                    placeholder="Search by Name or Roll..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 16px 10px 40px",
+                      fontSize: 14,
+                      border: "2px solid var(--gray-300)",
+                      borderRadius: 8,
+                      outline: "none",
+                      transition: "border-color 0.2s",
+                    }}
+                    onFocus={(e) => (e.target.style.borderColor = "var(--primary)")}
+                    onBlur={(e) => (e.target.style.borderColor = "var(--gray-300)")}
+                  />
+                  <span
                     style={{
                       position: "absolute",
-                      right: 8,
+                      left: 12,
                       top: "50%",
                       transform: "translateY(-50%)",
-                      background: "none",
-                      border: "none",
-                      fontSize: 20,
+                      fontSize: 18,
                       color: "var(--gray-500)",
-                      cursor: "pointer",
-                      padding: "4px 8px",
-                      lineHeight: 1,
                     }}
-                    title="Clear search"
                   >
-                    ×
-                  </button>
+                    🔍
+                  </span>
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery("")}
+                      style={{
+                        position: "absolute",
+                        right: 8,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        background: "none",
+                        border: "none",
+                        fontSize: 20,
+                        color: "var(--gray-500)",
+                        cursor: "pointer",
+                        padding: "4px 8px",
+                        lineHeight: 1,
+                      }}
+                      title="Clear search"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                {searchQuery && (
+                  <p style={{ marginTop: 8, fontSize: 13, color: "var(--gray-600)", textAlign: "right" }}>
+                    Found {getSearchFilteredStandings().length} result{getSearchFilteredStandings().length !== 1 ? 's' : ''}
+                  </p>
                 )}
               </div>
-              {searchQuery && (
-                <p style={{ marginTop: 8, fontSize: 13, color: "var(--gray-600)" }}>
-                  Found {getSearchFilteredStandings().length} result{getSearchFilteredStandings().length !== 1 ? 's' : ''}
-                </p>
-              )}
             </div>
           )}
 

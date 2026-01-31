@@ -463,52 +463,117 @@ const Standings = () => {
             )}
           </div>
 
-          {/* Batch Filter */}
+          {/* Batch Filter and Search - Same Row */}
           {!loading && !error && standings.length > 0 && getAvailableBatches().length > 0 && (
             <div style={{ marginBottom: 24 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <button
-                  className="btn secondary sm"
-                  onClick={() => setBatchFilterOpen(!batchFilterOpen)}
-                  style={{ display: "flex", alignItems: "center", gap: 6 }}
-                >
-                  <span>🎓</span>
-                  <span>Filter by Batch</span>
-                  <span style={{ fontSize: 11, opacity: 0.7 }}>
-                    {selectedBatches.length > 0 ? `(${selectedBatches.length})` : ""}
-                  </span>
-                </button>
-                {selectedBatches.length > 0 && (
-                  <>
-                    {selectedBatches.map((batch) => (
-                      <span
-                        key={batch}
-                        className="badge"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          cursor: "pointer",
-                          backgroundColor: "var(--primary)",
-                          color: "white",
-                        }}
-                        onClick={() => toggleBatch(batch)}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center", justifyContent: "space-between" }}>
+                {/* Batch Filter Section */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", flex: 1 }}>
+                  <button
+                    className="btn secondary sm"
+                    onClick={() => setBatchFilterOpen(!batchFilterOpen)}
+                    style={{ display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <span>🎓</span>
+                    <span>Filter by Batch</span>
+                    <span style={{ fontSize: 11, opacity: 0.7 }}>
+                      {selectedBatches.length > 0 ? `(${selectedBatches.length})` : ""}
+                    </span>
+                  </button>
+                  {selectedBatches.length > 0 && (
+                    <>
+                      {selectedBatches.map((batch) => (
+                        <span
+                          key={batch}
+                          className="badge"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            cursor: "pointer",
+                            backgroundColor: "var(--primary)",
+                            color: "white",
+                          }}
+                          onClick={() => toggleBatch(batch)}
+                        >
+                          {batch}
+                          <span style={{ fontSize: 16, lineHeight: 1 }}>×</span>
+                        </span>
+                      ))}
+                      <button
+                        className="btn sm"
+                        onClick={clearBatchFilter}
+                        style={{ fontSize: 12, padding: "4px 10px" }}
                       >
-                        {batch}
-                        <span style={{ fontSize: 16, lineHeight: 1 }}>×</span>
-                      </span>
-                    ))}
-                    <button
-                      className="btn sm"
-                      onClick={clearBatchFilter}
-                      style={{ fontSize: 12, padding: "4px 10px" }}
+                        Clear All
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* Search Section */}
+                <div style={{ width: "100%", maxWidth: 400, minWidth: 280 }}>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type="text"
+                      placeholder="Search by Name, Roll, or Handle..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "10px 16px 10px 40px",
+                        fontSize: 14,
+                        border: "2px solid var(--gray-300)",
+                        borderRadius: 8,
+                        outline: "none",
+                        transition: "border-color 0.2s",
+                      }}
+                      onFocus={(e) => (e.target.style.borderColor = "var(--primary)")}
+                      onBlur={(e) => (e.target.style.borderColor = "var(--gray-300)")}
+                    />
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: 12,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        fontSize: 18,
+                        color: "var(--gray-500)",
+                      }}
                     >
-                      Clear All
-                    </button>
-                  </>
-                )}
+                      🔍
+                    </span>
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery("")}
+                        style={{
+                          position: "absolute",
+                          right: 8,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "none",
+                          border: "none",
+                          fontSize: 20,
+                          color: "var(--gray-500)",
+                          cursor: "pointer",
+                          padding: "4px 8px",
+                          lineHeight: 1,
+                        }}
+                        title="Clear search"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  {searchQuery && (
+                    <p style={{ marginTop: 4, fontSize: 13, color: "var(--gray-600)", textAlign: "right" }}>
+                      Found {getSearchFilteredStandings().length} result{getSearchFilteredStandings().length !== 1 ? 's' : ''}
+                    </p>
+                  )}
+                </div>
               </div>
 
+              {/* Batch Filter Dropdown */}
               {batchFilterOpen && (
                 <div
                   style={{
@@ -553,71 +618,6 @@ const Standings = () => {
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Search Filter */}
-          {!loading && !error && standings.length > 0 && (
-            <div style={{ marginBottom: 24, display: "flex", justifyContent: "flex-end" }}>
-              <div style={{ width: "100%", maxWidth: 400 }}>
-                <div style={{ position: "relative" }}>
-                  <input
-                    type="text"
-                    placeholder="Search by Name, Roll, or Handle..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "10px 16px 10px 40px",
-                      fontSize: 14,
-                      border: "2px solid var(--gray-300)",
-                      borderRadius: 8,
-                      outline: "none",
-                      transition: "border-color 0.2s",
-                    }}
-                    onFocus={(e) => (e.target.style.borderColor = "var(--primary)")}
-                    onBlur={(e) => (e.target.style.borderColor = "var(--gray-300)")}
-                  />
-                  <span
-                    style={{
-                      position: "absolute",
-                      left: 12,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      fontSize: 18,
-                      color: "var(--gray-500)",
-                    }}
-                  >
-                    🔍
-                  </span>
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery("")}
-                      style={{
-                        position: "absolute",
-                        right: 8,
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        background: "none",
-                        border: "none",
-                        fontSize: 20,
-                        color: "var(--gray-500)",
-                        cursor: "pointer",
-                        padding: "4px 8px",
-                        lineHeight: 1,
-                      }}
-                      title="Clear search"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-                {searchQuery && (
-                  <p style={{ marginTop: 8, fontSize: 13, color: "var(--gray-600)", textAlign: "right" }}>
-                    Found {getSearchFilteredStandings().length} result{getSearchFilteredStandings().length !== 1 ? 's' : ''}
-                  </p>
-                )}
-              </div>
             </div>
           )}
 

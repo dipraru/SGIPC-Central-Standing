@@ -713,49 +713,30 @@ const AdminDashboard = () => {
             )}
           </div>
 
-          {/* Batch Filter */}
+          {/* Batch Filter and Search - Same Row */}
           {!loading && !error && handles.length > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              <button
-                className="btn secondary"
-                onClick={() => setBatchFilterOpen(!batchFilterOpen)}
-                style={{
-                  padding: "8px 16px",
-                  fontSize: 14,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                🎓 Filter by Batch
-                <span style={{ fontSize: 12, opacity: 0.8 }}>
-                  {batchFilterOpen ? "▲" : "▼"}
-                </span>
-              </button>
-              {batchFilterOpen && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    padding: 16,
-                    border: "1px solid var(--gray-300)",
-                    borderRadius: 8,
-                    backgroundColor: "var(--gray-50)",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                    <strong style={{ fontSize: 14, color: "var(--gray-700)" }}>Select Batches:</strong>
-                    {selectedBatches.length > 0 && (
-                      <button
-                        className="btn secondary"
-                        onClick={clearBatchFilter}
-                        style={{ padding: "4px 12px", fontSize: 13 }}
-                      >
-                        Clear All
-                      </button>
-                    )}
-                  </div>
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center", justifyContent: "space-between" }}>
+                {/* Batch Filter Section */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", flex: 1 }}>
+                  <button
+                    className="btn secondary"
+                    onClick={() => setBatchFilterOpen(!batchFilterOpen)}
+                    style={{
+                      padding: "8px 16px",
+                      fontSize: 14,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    🎓 Filter by Batch
+                    <span style={{ fontSize: 12, opacity: 0.8 }}>
+                      {batchFilterOpen ? "▲" : "▼"}
+                    </span>
+                  </button>
                   {selectedBatches.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                    <>
                       {selectedBatches.map((batch) => (
                         <span
                           key={batch}
@@ -766,13 +747,101 @@ const AdminDashboard = () => {
                             borderRadius: 16,
                             fontSize: 13,
                             fontWeight: 600,
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
                           }}
+                          onClick={() => toggleBatch(batch)}
                         >
                           {batch}
+                          <span style={{ fontSize: 16, lineHeight: 1 }}>×</span>
                         </span>
                       ))}
-                    </div>
+                      <button
+                        className="btn secondary"
+                        onClick={clearBatchFilter}
+                        style={{ padding: "4px 12px", fontSize: 13 }}
+                      >
+                        Clear All
+                      </button>
+                    </>
                   )}
+                </div>
+
+                {/* Search Section */}
+                <div style={{ width: "100%", maxWidth: 400, minWidth: 280 }}>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type="text"
+                      placeholder="Search by Name, Roll, or Handle..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "10px 16px 10px 40px",
+                        fontSize: 14,
+                        border: "2px solid var(--gray-300)",
+                        borderRadius: 8,
+                        outline: "none",
+                        transition: "border-color 0.2s",
+                      }}
+                      onFocus={(e) => (e.target.style.borderColor = "var(--primary)")}
+                      onBlur={(e) => (e.target.style.borderColor = "var(--gray-300)")}
+                    />
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: 12,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        fontSize: 18,
+                        color: "var(--gray-500)",
+                      }}
+                    >
+                      🔍
+                    </span>
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery("")}
+                        style={{
+                          position: "absolute",
+                          right: 8,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "none",
+                          border: "none",
+                          fontSize: 20,
+                          color: "var(--gray-500)",
+                          cursor: "pointer",
+                          padding: "4px 8px",
+                          lineHeight: 1,
+                        }}
+                        title="Clear search"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  {searchQuery && (
+                    <p style={{ marginTop: 4, fontSize: 13, color: "var(--gray-600)", textAlign: "right" }}>
+                      Found {getSearchFilteredHandles().length} result{getSearchFilteredHandles().length !== 1 ? 's' : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Batch Filter Dropdown */}
+              {batchFilterOpen && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: 16,
+                    border: "1px solid var(--gray-200)",
+                    borderRadius: 8,
+                    backgroundColor: "var(--gray-50)",
+                  }}
+                >
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                     {getAvailableBatches().map((batch) => (
                       <label
@@ -780,9 +849,19 @@ const AdminDashboard = () => {
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          gap: 6,
+                          gap: 8,
                           cursor: "pointer",
+                          padding: "6px 12px",
+                          backgroundColor: selectedBatches.includes(batch)
+                            ? "var(--primary-light)"
+                            : "white",
+                          border: `2px solid ${
+                            selectedBatches.includes(batch) ? "var(--primary)" : "var(--gray-300)"
+                          }`,
+                          borderRadius: 6,
+                          transition: "all 0.2s",
                           fontSize: 14,
+                          fontWeight: 500,
                           userSelect: "none",
                         }}
                       >
@@ -798,71 +877,6 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Search Filter */}
-          {!loading && !error && handles.length > 0 && (
-            <div style={{ marginBottom: 24, display: "flex", justifyContent: "flex-end" }}>
-              <div style={{ width: "100%", maxWidth: 400 }}>
-                <div style={{ position: "relative" }}>
-                  <input
-                    type="text"
-                    placeholder="Search by Name, Roll, or Handle..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "10px 16px 10px 40px",
-                      fontSize: 14,
-                      border: "2px solid var(--gray-300)",
-                      borderRadius: 8,
-                      outline: "none",
-                      transition: "border-color 0.2s",
-                    }}
-                    onFocus={(e) => (e.target.style.borderColor = "var(--primary)")}
-                    onBlur={(e) => (e.target.style.borderColor = "var(--gray-300)")}
-                  />
-                  <span
-                    style={{
-                      position: "absolute",
-                      left: 12,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      fontSize: 18,
-                      color: "var(--gray-500)",
-                    }}
-                  >
-                    🔍
-                  </span>
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery("")}
-                      style={{
-                        position: "absolute",
-                        right: 8,
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        background: "none",
-                        border: "none",
-                        fontSize: 20,
-                        color: "var(--gray-500)",
-                        cursor: "pointer",
-                        padding: "4px 8px",
-                        lineHeight: 1,
-                      }}
-                      title="Clear search"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-                {searchQuery && (
-                  <p style={{ marginTop: 8, fontSize: 13, color: "var(--gray-600)", textAlign: "right" }}>
-                    Found {getSearchFilteredHandles().length} result{getSearchFilteredHandles().length !== 1 ? 's' : ''}
-                  </p>
-                )}
-              </div>
             </div>
           )}
 

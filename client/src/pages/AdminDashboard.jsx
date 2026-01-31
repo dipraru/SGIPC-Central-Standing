@@ -124,7 +124,7 @@ const AdminDashboard = () => {
     });
   };
 
-  // Filter by search query (name or roll)
+  // Filter by search query (name, roll, or handle)
   const getSearchFilteredHandles = () => {
     const batchFiltered = getFilteredHandles();
     

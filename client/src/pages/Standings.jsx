@@ -127,7 +127,7 @@ const Standings = () => {
     });
   };
 
-  // Filter by search query (name or roll)
+  // Filter by search query (name, roll, or handle)
   const getSearchFilteredStandings = () => {
     const batchFiltered = getFilteredStandings();
     
@@ -137,7 +137,8 @@ const Standings = () => {
     return batchFiltered.filter((row) => {
       const nameMatch = (row.name || "").toLowerCase().includes(query);
       const rollMatch = (row.roll || "").toLowerCase().includes(query);
-      return nameMatch || rollMatch;
+      const handleMatch = (row.handle || "").toLowerCase().includes(query);
+      return nameMatch || rollMatch || handleMatch;
     });
   };
 
@@ -562,7 +563,7 @@ const Standings = () => {
                 <div style={{ position: "relative" }}>
                   <input
                     type="text"
-                    placeholder="Search by Name or Roll..."
+                    placeholder="Search by Name, Roll, or Handle..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     style={{

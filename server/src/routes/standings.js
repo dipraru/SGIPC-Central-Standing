@@ -59,12 +59,16 @@ router.get("/standings", async (req, res) => {
             return acc;
           }, new Map());
 
+          const currentRating =
+            historyMap.get(todayKey)?.rating ?? meta?.currentRating ?? 1000;
+
           const historyStats = lastFiveDates
             .map((dateKey, index) => {
               const todayItem = historyMap.get(dateKey);
               const prevDate = lastSixDates[index];
               const prevItem = historyMap.get(prevDate);
-              const fromRating = prevItem ? prevItem.rating : todayItem?.rating ?? 1000;
+              const fromRating =
+                prevItem?.rating ?? todayItem?.rating ?? currentRating;
               const toRating = todayItem ? todayItem.rating : fromRating;
               return {
                 date: dateKey,
@@ -78,7 +82,6 @@ router.get("/standings", async (req, res) => {
             .reverse();
 
           // Get data from database only - no API calls
-          const currentRating = historyMap.get(todayKey)?.rating ?? meta?.currentRating ?? 1000;
           const maxRating = meta?.maxRating ?? 0;
           const solvedCount = meta?.totalSolved ?? 0;
 

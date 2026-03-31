@@ -2,79 +2,55 @@ name: Daily Database Refresh
 
 on:
   schedule:
-    # Runs at 18:00 UTC daily (12:00 AM Bangladesh time)
+    # Primary run at 18:00 UTC (12:00 AM Bangladesh)
     - cron: '0 18 * * *'
+    # Fallback run 10 minutes later for GitHub schedule delays
+    - cron: '10 18 * * *'
   workflow_dispatch: # Allows manual trigger
 
 jobs:
   refresh-standings:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: daily-refresh-standings
+      cancel-in-progress: false
     steps:
-      - name: Refresh chunk 0-4
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=0&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 5-9
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=5&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 10-14
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=10&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 15-19
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=15&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 20-24
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=20&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 25-29
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=25&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 30-34
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=30&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 35-39
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=35&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 40-44
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=40&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 45-49
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=45&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 50-54
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=50&limit=5'
-        
-      - name: Wait 30s
-        run: sleep 30
-        
-      - name: Refresh chunk 55-59
-        run: curl -f 'https://sgipc-central-standing.vercel.app/api/cron/refresh-chunk?secret=8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304&skip=55&limit=5'
+      - name: Refresh all chunks with retries
+        env:
+          BASE_URL: https://sgipc-central-standing.vercel.app
+          CRON_SECRET: 8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304
+        run: |
+          set -e
+          skip=0
+          while true; do
+            url="$BASE_URL/api/cron/refresh-chunk?secret=$CRON_SECRET&skip=$skip&limit=5"
+            echo "Refreshing chunk: skip=$skip"
+            ok=0
+            response=""
+            for attempt in 1 2 3; do
+              if response=$(curl -fsS --max-time 55 "$url"); then
+                ok=1
+                break
+              fi
+              echo "Attempt $attempt failed for skip=$skip; retrying in 10s..."
+              sleep 10
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "Chunk refresh failed after retries: skip=$skip"
+              exit 1
+            fi
+
+            echo "$response"
+
+            processed_count=$(printf '%s' "$response" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const obj=JSON.parse(s||"{}");console.log((obj.processed||[]).length);});')
+            next_skip=$(printf '%s' "$response" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const obj=JSON.parse(s||"{}");console.log(Number.isFinite(obj.nextSkip)?obj.nextSkip:0);});')
+
+            if [ "$processed_count" -eq 0 ]; then
+              echo "All handles refreshed."
+              break
+            fi
+
+            skip=$next_skip
+            sleep 20
+          done

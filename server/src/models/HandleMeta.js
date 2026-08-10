@@ -5,6 +5,7 @@ const handleMetaSchema = new mongoose.Schema(
     handle: { type: String, required: true, unique: true },
     lastUpdateDate: { type: String, required: true },
     currentRating: { type: Number, required: true },
+    maxRating: { type: Number, default: 0 },
     totalSolved: { type: Number, required: true, default: 0 },
   },
   { timestamps: true }

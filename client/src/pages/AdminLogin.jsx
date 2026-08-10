@@ -1,24 +1,21 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { loginAdmin } from "../api.js";
 
 const AdminLogin = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
+  const [error,    setError]    = useState("");
+  const [loading,  setLoading]  = useState(false);
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     try {
       setLoading(true);
       setError("");
       const data = await loginAdmin({ username, password });
       localStorage.setItem("sgipc_token", data.token);
-      // Force reload to update auth state
       window.location.href = "/admin";
-    } catch (err) {
+    } catch {
       setError("Invalid login credentials");
     } finally {
       setLoading(false);
@@ -26,38 +23,32 @@ const AdminLogin = () => {
   };
 
   return (
-    <div className="container">
-      <div className="hero">
-        <span className="badge">Admin Access</span>
-        <h1>SGIPC Admin Login</h1>
-        <p>Sign in to manage Codeforces handles.</p>
-      </div>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, background: "var(--bg)" }}>
+      <div className="login-card">
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <span className="badge" style={{ marginBottom: 14 }}>🔐 Admin Access</span>
+          <h1>SGIPC Admin</h1>
+          <p>Sign in to manage the standings platform</p>
+        </div>
 
-      <div className="card" style={{ marginTop: 20 }}>
-        <form onSubmit={handleSubmit}>
-          <div className="form-row" style={{ marginBottom: 12 }}>
-            <input
-              type="text"
-              placeholder="Username"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              required
-            />
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div className="field">
+            <label>Username</label>
+            <input type="text" placeholder="admin" value={username} onChange={(e) => setUsername(e.target.value)} required autoComplete="username" />
           </div>
-          <div className="form-row" style={{ marginBottom: 12 }}>
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
+          <div className="field">
+            <label>Password</label>
+            <input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
           </div>
-          <button className="primary" type="submit" disabled={loading}>
-            {loading ? "Signing in..." : "Login"}
+          {error && <div className="notice error">{error}</div>}
+          <button className="primary" type="submit" disabled={loading} style={{ width: "100%", marginTop: 4 }}>
+            {loading ? "Signing in…" : "Sign In"}
           </button>
-          {error && <p className="notice">{error}</p>}
         </form>
+
+        <p style={{ textAlign: "center", marginTop: 18, fontSize: 12, color: "var(--text-muted)" }}>
+          <a href="/" style={{ color: "var(--primary)", textDecoration: "none" }}>← Back to standings</a>
+        </p>
       </div>
     </div>
   );

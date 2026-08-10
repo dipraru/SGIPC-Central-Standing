@@ -14,6 +14,8 @@ const handleSchema = new mongoose.Schema(
         delta: { type: Number, required: true },
       },
     ],
+    isInactive: { type: Boolean, default: false },
+    inactiveSince: { type: Date, default: null },
   },
   { timestamps: true }
 );

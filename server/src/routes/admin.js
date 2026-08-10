@@ -236,6 +236,29 @@ router.post("/requests/:id/approve", authRequired, async (req, res) => {
     return res.json({ message: "Request approved", team: createdTeam });
   }
 
+  if (request.type === "reactivation") {
+    const handleDoc = await Handle.findOne({ handle: request.handle });
+    if (!handleDoc) {
+      return res.status(404).json({ message: "Handle not found" });
+    }
+    // Re-activate the handle so it gets included in the next nightly refresh
+    await Handle.updateOne(
+      { handle: request.handle },
+      { isInactive: false, inactiveSince: null }
+    );
+    // Immediately backfill data so the handle shows up in standings right away
+    try {
+      await refreshHandleData(request.handle, { fullHistory: true });
+    } catch (error) {
+      console.error(`Reactivation backfill failed for ${request.handle}:`, error.message);
+      // Don't roll back — the handle is reactivated, it will be refreshed at midnight
+    }
+    request.status = "approved";
+    request.approvedAt = new Date();
+    await request.save();
+    return res.json({ message: "Reactivation approved", handle: request.handle });
+  }
+
   return res.status(400).json({ message: "Unsupported request type" });
 });
 

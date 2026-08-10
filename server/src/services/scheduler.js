@@ -7,6 +7,26 @@ import { PendingProblem } from "../models/PendingProblem.js";
 import { getSolvedProblems, getUserInfo } from "./codeforces.js";
 import { toLocalDateKey, computeRatingUpTo, startOfLocalDayFromDateKey } from "./elo.js";
 
+// 90 days in seconds — threshold for marking an account inactive
+const INACTIVE_THRESHOLD_SECONDS = 90 * 24 * 3600;
+
+// 3-day grace period before purging historical data after marking inactive
+const INACTIVE_GRACE_DAYS = 3;
+
+// Delay between handle refreshes to avoid CF rate-limiting (ms)
+const HANDLE_REFRESH_DELAY_MS = 600;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Check if a handle has solved any problem in the last 90 days
+const hasRecentActivity = (solvedProblems) => {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const cutoff = nowSeconds - INACTIVE_THRESHOLD_SECONDS;
+  return solvedProblems.some(
+    (p) => p.solvedAtSeconds && p.solvedAtSeconds >= cutoff
+  );
+};
+
 // Function to refresh data for a single handle
 export async function refreshHandleData(handle, options = {}) {
   const { fullHistory = false } = options;
@@ -17,14 +37,14 @@ export async function refreshHandleData(handle, options = {}) {
     const localTodayStart = startOfLocalDayFromDateKey(localTodayKey);
     const targetEndSeconds = localTodayStart - 1;
     const targetDateKey = toLocalDateKey(targetEndSeconds);
-    
+
     // Fetch user info and solved problems
     const [userInfo, solvedProblems] = await Promise.all([
       getUserInfo(handle),
-      getSolvedProblems(handle)
+      getSolvedProblems(handle),
     ]);
 
-    // Deduplicate problems; treat Div1/Div2 mirrored problems (contestId diff 1 and same name) as the same
+    // Deduplicate problems; treat Div1/Div2 mirrored problems as the same
     const areSameProblem = (a, b) => {
       const nameMatch = (a.name || "").toLowerCase() === (b.name || "").toLowerCase();
       const contestClose =
@@ -44,16 +64,79 @@ export async function refreshHandleData(handle, options = {}) {
         problem.solvedAtSeconds &&
         (!existing.solvedAtSeconds || problem.solvedAtSeconds < existing.solvedAtSeconds)
       ) {
-        // Keep earliest solve time
         Object.assign(existing, problem);
       }
     }
 
-    // Update meta information
+    // ── Inactive detection ────────────────────────────────────────────────────
+    const active = hasRecentActivity(uniqueSolved);
+
+    if (!active) {
+      // No activity in 90 days — mark as inactive
+      const handleDoc = await Handle.findOne({ handle });
+      if (handleDoc) {
+        if (!handleDoc.isInactive) {
+          // First time becoming inactive — set timestamp, don't purge yet
+          await Handle.updateOne(
+            { handle },
+            { isInactive: true, inactiveSince: new Date() }
+          );
+          console.log(`Handle ${handle} marked as inactive (no solves in 90 days).`);
+        } else {
+          // Already inactive — check if grace period has passed
+          const inactiveSince = handleDoc.inactiveSince
+            ? new Date(handleDoc.inactiveSince)
+            : new Date();
+          const daysSinceInactive = Math.floor(
+            (Date.now() - inactiveSince.getTime()) / (1000 * 3600 * 24)
+          );
+
+          if (daysSinceInactive >= INACTIVE_GRACE_DAYS) {
+            // Grace period over — purge historical data to save storage
+            await Promise.all([
+              DailySolved.deleteMany({ handle }),
+              RatingHistory.deleteMany({ handle }),
+              PendingProblem.deleteMany({ handle }),
+            ]);
+            // Keep HandleMeta updated with latest maxRating & totalSolved
+            await HandleMeta.findOneAndUpdate(
+              { handle },
+              {
+                handle,
+                maxRating: userInfo.maxRating,
+                totalSolved: uniqueSolved.length,
+                currentRating: 1000,
+                lastUpdateDate: targetDateKey,
+              },
+              { upsert: true, new: true }
+            );
+            console.log(
+              `Handle ${handle} historical data purged (inactive ${daysSinceInactive} days).`
+            );
+          } else {
+            console.log(
+              `Handle ${handle} is inactive but still within grace period (${daysSinceInactive}/${INACTIVE_GRACE_DAYS} days).`
+            );
+          }
+        }
+      }
+      return; // Stop here — no rating/daily data to refresh for inactive handle
+    }
+
+    // ── Active handle — re-activate if previously inactive ────────────────────
+    const handleDoc = await Handle.findOne({ handle });
+    if (handleDoc?.isInactive) {
+      await Handle.updateOne(
+        { handle },
+        { isInactive: false, inactiveSince: null }
+      );
+      console.log(`Handle ${handle} re-activated (recent activity detected).`);
+    }
+
+    // ── Continue with normal data refresh ─────────────────────────────────────
     const existingMeta = await HandleMeta.findOne({ handle }).lean();
     const totalSolved = uniqueSolved.length;
 
-    // Update rating history for last 6 days
     const targetDayStart = startOfLocalDayFromDateKey(targetDateKey);
     const lastSixDates = Array.from({ length: 6 }, (_, i) =>
       toLocalDateKey(targetDayStart - (5 - i) * 86400)
@@ -120,7 +203,6 @@ export async function refreshHandleData(handle, options = {}) {
     }
 
     let currentRating = 1000;
-    // Always recalculate all 6 days to ensure fresh data
     const historyMap = new Map();
     for (const dateKey of lastSixDates) {
       const endSeconds = startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
@@ -138,6 +220,7 @@ export async function refreshHandleData(handle, options = {}) {
     }
     currentRating = historyMap.get(targetDateKey)?.rating ?? 1000;
 
+    // Save maxRating along with other meta — this is the critical fix
     await HandleMeta.findOneAndUpdate(
       { handle },
       {
@@ -155,7 +238,7 @@ export async function refreshHandleData(handle, options = {}) {
     await Promise.all([
       DailySolved.deleteMany({ handle, date: { $lt: oldestKeptDate } }),
       RatingHistory.deleteMany({ handle, date: { $lt: oldestKeptDate } }),
-      PendingProblem.deleteMany({ handle, date: { $lt: oldestKeptDate } })
+      PendingProblem.deleteMany({ handle, date: { $lt: oldestKeptDate } }),
     ]);
 
     console.log(`Successfully refreshed data for handle: ${handle} (up to ${targetDateKey})`);
@@ -164,28 +247,52 @@ export async function refreshHandleData(handle, options = {}) {
   }
 }
 
-// Function to refresh all handles. Defaults to incremental refresh to stay within
-// serverless time limits; use fullHistory=true only when bootstrapping new data.
+// Refresh all active handles with delay between each to avoid CF rate-limits
 export async function refreshAllHandles(options = {}) {
-  const { fullHistory = false } = options;
+  const { fullHistory = false, forceHandles = [] } = options;
   console.log(
     `Starting refresh for all handles (fullHistory=${fullHistory ? "yes" : "no"})...`
   );
-  const handles = await Handle.find().select("handle").lean();
 
-  for (const { handle } of handles) {
+  // Fetch all handles; skip inactive unless they are in forceHandles list
+  const allHandles = await Handle.find().select("handle isInactive").lean();
+  const handlesToRefresh = allHandles.filter(
+    (h) => !h.isInactive || forceHandles.includes(h.handle)
+  );
+
+  console.log(
+    `Refreshing ${handlesToRefresh.length} active handles (${allHandles.length - handlesToRefresh.length} inactive skipped)`
+  );
+
+  for (const { handle } of handlesToRefresh) {
     await refreshHandleData(handle, { fullHistory });
+    // Throttle to avoid hitting Codeforces rate limits
+    await delay(HANDLE_REFRESH_DELAY_MS);
   }
 
   console.log("Refresh completed for all handles");
 }
 
-// Schedule daily refresh at midnight (00:00)
+// Schedule daily refresh at midnight Bangladesh time (UTC+6 = 18:00 UTC)
 export function startScheduler() {
-  // Run once at server start
-  console.log("Running one-time refresh at server start");
+  // Run once at server start to ensure data is fresh
+  console.log("Running one-time refresh at server start...");
   refreshAllHandles().catch((error) =>
     console.error("One-time refresh failed:", error)
   );
-  console.log("Scheduler started: One-time refresh");
+
+  // Schedule cron job: midnight every day in Bangladesh time (UTC+6)
+  // "0 18 * * *" = 18:00 UTC = 00:00 UTC+6
+  cron.schedule("0 18 * * *", () => {
+    console.log("[Cron] Midnight Bangladesh time — starting scheduled refresh...");
+    refreshAllHandles().catch((error) =>
+      console.error("[Cron] Scheduled refresh failed:", error)
+    );
+  }, {
+    timezone: "UTC",
+  });
+
+  console.log(
+    "Scheduler started: Daily refresh cron active at midnight Bangladesh time (18:00 UTC)"
+  );
 }

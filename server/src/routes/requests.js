@@ -25,6 +25,7 @@ const verifyPasskey = async (input) => {
 
 const escapeRegex = (value = "") => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// ─── Individual Handle Request ───────────────────────────────────────────────
 router.post("/request/handle", async (req, res) => {
   const { handle, name, roll, batch, passkey } = req.body;
   if (!handle || !name || !roll || !batch || !passkey) {
@@ -32,25 +33,20 @@ router.post("/request/handle", async (req, res) => {
   }
 
   const normalizedHandle = handle.trim();
-  const normalizedHandleLower = normalizedHandle.toLowerCase();
   const existingHandle = await Handle.findOne({
     handle: { $regex: `^${escapeRegex(normalizedHandle)}$`, $options: "i" },
   });
   if (existingHandle) {
-    return res
-      .status(400)
-      .json({ message: "Handle already exists in standings" });
+    return res.status(400).json({ message: "Handle already exists in standings" });
   }
 
   const pendingHandle = await Request.findOne({
     type: "handle",
     status: "pending",
-    handle: { $regex: `^${escapeRegex(normalizedHandleLower)}$`, $options: "i" },
+    handle: { $regex: `^${escapeRegex(normalizedHandle)}$`, $options: "i" },
   });
   if (pendingHandle) {
-    return res
-      .status(400)
-      .json({ message: "Handle is already pending approval" });
+    return res.status(400).json({ message: "Handle is already pending approval" });
   }
 
   const isValid = await verifyPasskey(passkey);
@@ -76,22 +72,31 @@ router.post("/request/handle", async (req, res) => {
   return res.status(201).json({ message: "Request submitted", id: created._id });
 });
 
+// ─── Team Request (3 members required) ──────────────────────────────────────
 router.post("/request/team", async (req, res) => {
-  const { teamName, teamHandles, passkey } = req.body;
-  if (!teamName || !teamHandles || !passkey) {
-    return res.status(400).json({ message: "All fields are required" });
+  const { teamName, members, passkey } = req.body;
+
+  if (!teamName || !passkey) {
+    return res.status(400).json({ message: "Team name and passkey are required" });
   }
 
-  const aliasList = (teamHandles || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
+  // Validate 3 members
+  if (!Array.isArray(members) || members.length !== 3) {
+    return res.status(400).json({ message: "Exactly 3 team members are required" });
+  }
+  for (let i = 0; i < 3; i++) {
+    const m = members[i];
+    if (!m?.handle?.trim() || !m?.name?.trim() || !m?.roll?.trim() || !m?.batch?.trim()) {
+      return res.status(400).json({
+        message: `All fields for member ${i + 1} are required (handle, name, roll, batch)`,
+      });
+    }
+  }
+
+  const aliasList = members.map((m) => m.handle.trim());
   const aliasListLower = aliasList.map((v) => v.toLowerCase());
 
-  if (aliasList.length === 0) {
-    return res.status(400).json({ message: "Team handles are required" });
-  }
-
+  // Check for conflict with existing teams
   const teams = await VjudgeTeam.find().lean();
   const teamConflict = teams.some((team) => {
     const names = [team.name, ...(team.aliases || [])]
@@ -99,17 +104,12 @@ router.post("/request/team", async (req, res) => {
       .map((v) => v.toLowerCase());
     return names.some((alias) => aliasListLower.includes(alias));
   });
-
   if (teamConflict) {
-    return res
-      .status(400)
-      .json({ message: "One or more team handles already exist in standings" });
+    return res.status(400).json({ message: "One or more member handles already exist in standings" });
   }
 
-  const pendingTeams = await Request.find({
-    type: "team",
-    status: "pending",
-  }).lean();
+  // Check for conflict with pending requests
+  const pendingTeams = await Request.find({ type: "team", status: "pending" }).lean();
   const pendingConflict = pendingTeams.some((reqItem) => {
     const pendingAliases = (reqItem.teamHandles || "")
       .split(",")
@@ -117,11 +117,8 @@ router.post("/request/team", async (req, res) => {
       .filter(Boolean);
     return pendingAliases.some((alias) => aliasListLower.includes(alias));
   });
-
   if (pendingConflict) {
-    return res
-      .status(400)
-      .json({ message: "Team handles are already pending approval" });
+    return res.status(400).json({ message: "One or more member handles are already pending approval" });
   }
 
   const isValid = await verifyPasskey(passkey);
@@ -133,10 +130,58 @@ router.post("/request/team", async (req, res) => {
     type: "team",
     teamName: teamName.trim(),
     teamHandles: aliasList.join(", "),
+    teamMembers: members.map((m) => ({
+      handle: m.handle.trim(),
+      name:   m.name.trim(),
+      roll:   m.roll.trim(),
+      batch:  m.batch.trim(),
+    })),
     status: "pending",
   });
 
   return res.status(201).json({ message: "Request submitted", id: created._id });
+});
+
+// ─── Reactivation Request ────────────────────────────────────────────────────
+router.post("/request/reactivate", async (req, res) => {
+  const { handle } = req.body;
+  if (!handle) {
+    return res.status(400).json({ message: "Handle is required" });
+  }
+
+  const normalizedHandle = handle.trim();
+
+  const handleDoc = await Handle.findOne({
+    handle: { $regex: `^${escapeRegex(normalizedHandle)}$`, $options: "i" },
+  });
+
+  if (!handleDoc) {
+    return res.status(404).json({ message: "Handle not found" });
+  }
+
+  if (!handleDoc.isInactive) {
+    return res.status(400).json({ message: "Handle is already active" });
+  }
+
+  const existing = await Request.findOne({
+    type: "reactivation",
+    status: "pending",
+    handle: { $regex: `^${escapeRegex(normalizedHandle)}$`, $options: "i" },
+  });
+
+  if (existing) {
+    return res.status(400).json({ message: "A reactivation request is already pending for this handle" });
+  }
+
+  const created = await Request.create({
+    type: "reactivation",
+    handle:  handleDoc.handle,
+    name:    handleDoc.name || "",
+    batch:   handleDoc.batch || "",
+    status:  "pending",
+  });
+
+  return res.status(201).json({ message: "Reactivation request submitted", id: created._id });
 });
 
 export default router;

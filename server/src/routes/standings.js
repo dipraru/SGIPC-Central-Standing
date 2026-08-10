@@ -11,8 +11,10 @@ import {
 
 const router = express.Router();
 
+// ─── Active Standings ──────────────────────────────────────────────────────
 router.get("/standings", async (req, res) => {
-  const handles = await Handle.find().sort({ createdAt: -1 });
+  // Only fetch active handles
+  const handles = await Handle.find({ isInactive: { $ne: true } }).sort({ createdAt: -1 });
   if (handles.length === 0) {
     return res.json([]);
   }
@@ -32,7 +34,6 @@ router.get("/standings", async (req, res) => {
         const lastFiveDates = lastSixDates.slice(1);
 
         try {
-          // Only read from database - no external API calls or refreshes
           const meta = await HandleMeta.findOne({ handle: entry.handle }).lean();
 
           let historyEntries = await RatingHistory.find({
@@ -81,7 +82,6 @@ router.get("/standings", async (req, res) => {
             })
             .reverse();
 
-          // Get data from database only - no API calls
           const maxRating = meta?.maxRating ?? 0;
           const solvedCount = meta?.totalSolved ?? 0;
 
@@ -91,13 +91,12 @@ router.get("/standings", async (req, res) => {
             name: entry.name || "",
             roll: entry.roll || "",
             batch: entry.batch || "",
-            maxRating: maxRating,
-            solvedCount: solvedCount,
+            maxRating,
+            solvedCount,
             standingRating: currentRating,
             recentStats: historyStats,
           };
         } catch (error) {
-          // Return minimal data from handle if DB read fails
           console.error(`Error loading data for ${entry.handle}:`, error.message);
           return {
             id: entry._id,
@@ -121,6 +120,41 @@ router.get("/standings", async (req, res) => {
   } catch (error) {
     return res.status(502).json({
       message: "Unable to fetch all standings. Please retry.",
+    });
+  }
+});
+
+// ─── Inactive Accounts ─────────────────────────────────────────────────────
+router.get("/standings/inactive", async (req, res) => {
+  try {
+    const inactiveHandles = await Handle.find({ isInactive: true }).lean();
+
+    if (inactiveHandles.length === 0) {
+      return res.json([]);
+    }
+
+    const results = await Promise.all(
+      inactiveHandles.map(async (entry) => {
+        const meta = await HandleMeta.findOne({ handle: entry.handle }).lean();
+        return {
+          id: entry._id,
+          handle: entry.handle,
+          name: entry.name || "",
+          roll: entry.roll || "",
+          batch: entry.batch || "",
+          maxRating: meta?.maxRating ?? 0,
+          totalSolved: meta?.totalSolved ?? 0,
+          inactiveSince: entry.inactiveSince || null,
+        };
+      })
+    );
+
+    // Sort by maxRating descending
+    results.sort((a, b) => b.maxRating - a.maxRating);
+    return res.json(results);
+  } catch (error) {
+    return res.status(502).json({
+      message: "Unable to fetch inactive accounts.",
     });
   }
 });

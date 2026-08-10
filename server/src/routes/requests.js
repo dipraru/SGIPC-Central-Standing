@@ -74,10 +74,11 @@ router.post("/request/handle", async (req, res) => {
 
 // ─── Team Request (3 members required) ──────────────────────────────────────
 router.post("/request/team", async (req, res) => {
-  const { teamName, members, passkey } = req.body;
+  const { teamName, teamVjudgeHandle, members, passkey } = req.body;
 
-  if (!teamName || !passkey) {
-    return res.status(400).json({ message: "Team name and passkey are required" });
+  const vjHandle = (teamVjudgeHandle || "").trim();
+  if (!teamName || !vjHandle || !passkey) {
+    return res.status(400).json({ message: "Team name, VJudge handle, and passkey are required" });
   }
 
   // Validate 3 members
@@ -86,39 +87,11 @@ router.post("/request/team", async (req, res) => {
   }
   for (let i = 0; i < 3; i++) {
     const m = members[i];
-    if (!m?.handle?.trim() || !m?.name?.trim() || !m?.roll?.trim() || !m?.batch?.trim()) {
+    if (!m?.name?.trim() || !m?.roll?.trim() || !m?.batch?.trim()) {
       return res.status(400).json({
-        message: `All fields for member ${i + 1} are required (handle, name, roll, batch)`,
+        message: `All fields for member ${i + 1} are required (name, roll, batch)`,
       });
     }
-  }
-
-  const aliasList = members.map((m) => m.handle.trim());
-  const aliasListLower = aliasList.map((v) => v.toLowerCase());
-
-  // Check for conflict with existing teams
-  const teams = await VjudgeTeam.find().lean();
-  const teamConflict = teams.some((team) => {
-    const names = [team.name, ...(team.aliases || [])]
-      .filter(Boolean)
-      .map((v) => v.toLowerCase());
-    return names.some((alias) => aliasListLower.includes(alias));
-  });
-  if (teamConflict) {
-    return res.status(400).json({ message: "One or more member handles already exist in standings" });
-  }
-
-  // Check for conflict with pending requests
-  const pendingTeams = await Request.find({ type: "team", status: "pending" }).lean();
-  const pendingConflict = pendingTeams.some((reqItem) => {
-    const pendingAliases = (reqItem.teamHandles || "")
-      .split(",")
-      .map((v) => v.trim().toLowerCase())
-      .filter(Boolean);
-    return pendingAliases.some((alias) => aliasListLower.includes(alias));
-  });
-  if (pendingConflict) {
-    return res.status(400).json({ message: "One or more member handles are already pending approval" });
   }
 
   const isValid = await verifyPasskey(passkey);
@@ -129,9 +102,9 @@ router.post("/request/team", async (req, res) => {
   const created = await Request.create({
     type: "team",
     teamName: teamName.trim(),
-    teamHandles: aliasList.join(", "),
+    teamHandles: vjHandle,
     teamMembers: members.map((m) => ({
-      handle: m.handle.trim(),
+      handle: (m.handle || "").trim(),
       name:   m.name.trim(),
       roll:   m.roll.trim(),
       batch:  m.batch.trim(),

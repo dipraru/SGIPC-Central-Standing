@@ -194,17 +194,21 @@ router.put("/handles/:id", authRequired, async (req, res) => {
 });
 
 router.delete("/handles/:id", authRequired, async (req, res) => {
-  const deleted = await Handle.findByIdAndDelete(req.params.id);
-  if (!deleted) {
-    return res.status(404).json({ message: "Handle not found" });
+  try {
+    const deleted = await Handle.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ message: "Handle not found" });
+    }
+    await Promise.all([
+      DailySolved.deleteMany({ handle: deleted.handle }),
+      PendingProblem.deleteMany({ handle: deleted.handle }),
+      RatingHistory.deleteMany({ handle: deleted.handle }),
+      HandleMeta.deleteMany({ handle: deleted.handle }),
+    ]);
+    return res.status(204).send();
+  } catch (err) {
+    return res.status(400).json({ message: "Failed to delete handle" });
   }
-  await Promise.all([
-    DailySolved.deleteMany({ handle: deleted.handle }),
-    PendingProblem.deleteMany({ handle: deleted.handle }),
-    RatingHistory.deleteMany({ handle: deleted.handle }),
-    HandleMeta.deleteMany({ handle: deleted.handle }),
-  ]);
-  return res.status(204).send();
 });
 
 router.get("/requests", authRequired, async (req, res) => {
@@ -260,6 +264,7 @@ router.post("/requests/:id/approve", authRequired, async (req, res) => {
     const createdTeam = await VjudgeTeam.create({
       name: request.teamName,
       aliases,
+      members: request.teamMembers || [],
     });
     request.status = "approved";
     request.approvedAt = new Date();

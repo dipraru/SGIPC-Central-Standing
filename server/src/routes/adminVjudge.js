@@ -27,7 +27,7 @@ router.get("/vjudge/teams", authRequired, async (req, res) => {
 });
 
 router.post("/vjudge/teams", authRequired, async (req, res) => {
-  const { name, aliases } = req.body;
+  const { name, aliases, members } = req.body;
   if (!name) {
     return res.status(400).json({ message: "Team name is required" });
   }
@@ -35,12 +35,16 @@ router.post("/vjudge/teams", authRequired, async (req, res) => {
   const aliasList = Array.isArray(aliases)
     ? aliases
     : String(aliases || "").split(",").map((item) => item.trim()).filter(Boolean);
-  const created = await VjudgeTeam.create({ name: normalized, aliases: aliasList });
+  const created = await VjudgeTeam.create({
+    name: normalized,
+    aliases: aliasList,
+    members: Array.isArray(members) ? members : [],
+  });
   return res.status(201).json(created);
 });
 
 router.patch("/vjudge/teams/:id", authRequired, async (req, res) => {
-  const { name, aliases } = req.body;
+  const { name, aliases, members } = req.body;
   if (!name) {
     return res.status(400).json({ message: "Team name is required" });
   }
@@ -51,9 +55,13 @@ router.patch("/vjudge/teams/:id", authRequired, async (req, res) => {
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean);
+  const updateFields = { name: normalized, aliases: aliasList };
+  if (Array.isArray(members)) {
+    updateFields.members = members;
+  }
   const updated = await VjudgeTeam.findByIdAndUpdate(
     req.params.id,
-    { name: normalized, aliases: aliasList },
+    updateFields,
     { new: true }
   );
   if (!updated) {
@@ -63,11 +71,15 @@ router.patch("/vjudge/teams/:id", authRequired, async (req, res) => {
 });
 
 router.delete("/vjudge/teams/:id", authRequired, async (req, res) => {
-  const deleted = await VjudgeTeam.findByIdAndDelete(req.params.id);
-  if (!deleted) {
-    return res.status(404).json({ message: "Team not found" });
+  try {
+    const deleted = await VjudgeTeam.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ message: "Team not found" });
+    }
+    return res.status(204).send();
+  } catch (err) {
+    return res.status(400).json({ message: "Failed to delete team" });
   }
-  return res.status(204).send();
 });
 
 router.get("/vjudge/contests", authRequired, async (req, res) => {
@@ -102,42 +114,52 @@ router.post("/vjudge/contests", authRequired, async (req, res) => {
 
 router.patch("/vjudge/contests/:id", authRequired, async (req, res) => {
   const { enabled, contestId, title } = req.body;
-  if (!contestId) {
-    return res.status(400).json({ message: "Contest ID is required" });
-  }
-  const numericId = Number(contestId);
-  if (!Number.isFinite(numericId)) {
-    return res.status(400).json({ message: "Contest ID must be a number" });
-  }
-  let resolvedTitle = String(title || "").trim();
-  if (!resolvedTitle) {
-    const data = await fetchContestRank(numericId);
-    resolvedTitle = String(data?.title || "").trim();
-    if (!resolvedTitle) {
-      return res.status(400).json({ message: "Contest name is required" });
-    }
-  }
-  const updated = await VjudgeContest.findByIdAndUpdate(
-    req.params.id,
-    {
-      contestId: numericId,
-      title: resolvedTitle,
-      enabled: Boolean(enabled),
-    },
-    { new: true }
-  );
-  if (!updated) {
+  const contest = await VjudgeContest.findById(req.params.id);
+  if (!contest) {
     return res.status(404).json({ message: "Contest not found" });
   }
+
+  const updateData = {};
+  if (enabled !== undefined) {
+    updateData.enabled = Boolean(enabled);
+  }
+  if (contestId !== undefined) {
+    const numericId = Number(contestId);
+    if (!Number.isFinite(numericId)) {
+      return res.status(400).json({ message: "Contest ID must be a number" });
+    }
+    updateData.contestId = numericId;
+  }
+  if (title !== undefined) {
+    let resolvedTitle = String(title || "").trim();
+    if (!resolvedTitle && updateData.contestId) {
+      const data = await fetchContestRank(updateData.contestId);
+      resolvedTitle = String(data?.title || "").trim();
+    }
+    if (resolvedTitle) {
+      updateData.title = resolvedTitle;
+    }
+  }
+
+  const updated = await VjudgeContest.findByIdAndUpdate(
+    req.params.id,
+    updateData,
+    { new: true }
+  );
+
   return res.json(updated);
 });
 
 router.delete("/vjudge/contests/:id", authRequired, async (req, res) => {
-  const deleted = await VjudgeContest.findByIdAndDelete(req.params.id);
-  if (!deleted) {
-    return res.status(404).json({ message: "Contest not found" });
+  try {
+    const deleted = await VjudgeContest.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ message: "Contest not found" });
+    }
+    return res.status(204).send();
+  } catch (err) {
+    return res.status(400).json({ message: "Failed to delete contest" });
   }
-  return res.status(204).send();
 });
 
 router.get("/vjudge/config", authRequired, async (req, res) => {

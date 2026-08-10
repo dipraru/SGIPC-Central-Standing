@@ -126,6 +126,44 @@ const AdminDashboard = () => {
   };
 
   // ── Ranks Pre-computation ──────────────────────────────────────────────────
+  // ── Column Sorting State (ephemeral, resets on refresh) ────────────────────
+  const [sortField, setSortField] = useState(null); // null | 'handle' | 'maxRating' | 'solvedCount' | 'standingRating'
+  const [sortDir,   setSortDir]   = useState('desc');
+
+  const handleSortClick = (field) => {
+    if (sortField === field) {
+      setSortDir((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortField(field);
+      setSortDir(field === 'handle' ? 'asc' : 'desc');
+    }
+  };
+
+  const sortedHandles = useMemo(() => {
+    if (!sortField) return handles;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...handles].sort((a, b) => {
+      let valA = a[sortField];
+      let valB = b[sortField];
+      if (sortField === 'handle') {
+        valA = (a.name || a.handle || "").toLowerCase();
+        valB = (b.name || b.handle || "").toLowerCase();
+        return valA.localeCompare(valB) * dir;
+      }
+      valA = Number(valA) || 0;
+      valB = Number(valB) || 0;
+      if (valA !== valB) return (valA - valB) * dir;
+      if ((b.standingRating || 0) !== (a.standingRating || 0)) return (b.standingRating || 0) - (a.standingRating || 0);
+      return (b.maxRating || 0) - (a.maxRating || 0);
+    });
+  }, [handles, sortField, sortDir]);
+
+  const globalRankMap = useMemo(() => {
+    const m = new Map();
+    sortedHandles.forEach((h, i) => m.set(String(h._id || h.id), i + 1));
+    return m;
+  }, [sortedHandles]);
+
   const practiceRankMap = useMemo(() => {
     const m = new Map();
     const sorted = [...handles].sort((a, b) => {
@@ -161,7 +199,7 @@ const AdminDashboard = () => {
   }, [handles]);
 
   const filteredHandles = useMemo(() => {
-    let list = handles;
+    let list = sortedHandles;
     if (selectedBatches.length > 0) {
       list = list.filter((r) => {
         const d = extractBatchDigits(r.batch);
@@ -176,7 +214,7 @@ const AdminDashboard = () => {
         (r.name   || "").toLowerCase().includes(q) ||
         (r.roll   || "").toLowerCase().includes(q)
     );
-  }, [handles, selectedBatches, searchQuery]);
+  }, [sortedHandles, selectedBatches, searchQuery]);
 
   const toggleBatch = (b) =>
     setSelectedBatches((p) => (p.includes(b) ? p.filter((x) => x !== b) : [...p, b]));
@@ -506,11 +544,20 @@ const AdminDashboard = () => {
               <thead>
                 <tr>
                   <th style={{ width: 44 }}>#</th>
-                  <th>Handle</th>
-                  <th>Name</th>
+                  <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("handle")}>
+                    Handle / Name {sortField === "handle" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </th>
                   <th>Roll</th>
                   <th>Batch</th>
-                  <th style={{ width: 90 }}>CF Max</th>
+                  <th style={{ width: 90, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("maxRating")}>
+                    CF Max {sortField === "maxRating" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </th>
+                  <th style={{ width: 80, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("solvedCount")}>
+                    Solved {sortField === "solvedCount" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </th>
+                  <th style={{ width: 110, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("standingRating")}>
+                    Practice {sortField === "standingRating" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  </th>
                   <th style={{ width: 50, textAlign: "center" }}>Info</th>
                   <th style={{ width: 140, textAlign: "right" }}>Actions</th>
                 </tr>
@@ -518,21 +565,28 @@ const AdminDashboard = () => {
               <tbody>
                 {filteredHandles.map((row, idx) => {
                   const isEditing = editingHandleId === row._id;
+                  const currentRank = globalRankMap.get(String(row._id || row.id)) ?? (idx + 1);
                   return (
                     <tr key={row._id}>
                       <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)", fontSize: 13 }}>
-                        {idx + 1}
+                        {currentRank}
                       </td>
                       <td>
                         <a href={`https://codeforces.com/profile/${row.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">
                           {row.handle}
                         </a>
-                      </td>
-                      <td>
                         {isEditing ? (
-                          <input type="text" value={editingName} onChange={(e) => setEditingName(e.target.value)} style={{ padding: "4px 8px" }} />
+                          <div style={{ marginTop: 4 }}>
+                            <input
+                              type="text"
+                              placeholder="Full Name"
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              style={{ padding: "3px 6px", fontSize: 12 }}
+                            />
+                          </div>
                         ) : (
-                          row.name || "—"
+                          row.name && <div className="handle-sub">{row.name}</div>
                         )}
                       </td>
                       <td>
@@ -550,6 +604,8 @@ const AdminDashboard = () => {
                         )}
                       </td>
                       <td><span className="stat-badge rating">{row.maxRating || "—"}</span></td>
+                      <td><span className="stat-badge solved">{row.solvedCount || 0}</span></td>
+                      <td style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--primary)" }}>{row.standingRating || 1000}</td>
                       <td style={{ textAlign: "center" }}>
                         <button className="icon-btn" onClick={() => setHandleDetailModal(row)} title="View details">👁</button>
                       </td>

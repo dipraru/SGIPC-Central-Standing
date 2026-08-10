@@ -51,6 +51,7 @@ export const computeRatingUpTo = ({ maxRating, solvedProblems, dayEndSeconds }) 
   const scoped = solvedProblems
     .filter(
       (problem) =>
+        !problem.isGym &&
         problem.rating &&
         problem.solvedAtSeconds &&
         problem.solvedAtSeconds >= windowStart &&
@@ -86,7 +87,7 @@ export const calculateEloScore = ({ maxRating, solvedProblems }) => {
   );
 
   for (const problem of ordered) {
-    if (!problem.rating || !problem.solvedAtSeconds) {
+    if (!problem.rating || !problem.solvedAtSeconds || problem.isGym) {
       continue;
     }
 
@@ -131,7 +132,7 @@ export const buildRecentStats = ({ maxRating, solvedProblems }) => {
   const dayMap = new Map(recentDays.map((day) => [day.date, day]));
 
   for (const problem of solvedProblems) {
-    if (!problem.solvedAtSeconds) {
+    if (!problem.solvedAtSeconds || problem.isGym) {
       continue;
     }
     const daysAgo = daysBetween(problem.solvedAtSeconds, nowSeconds);

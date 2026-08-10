@@ -23,7 +23,7 @@ const hasRecentActivity = (solvedProblems) => {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const cutoff = nowSeconds - INACTIVE_THRESHOLD_SECONDS;
   return solvedProblems.some(
-    (p) => p.solvedAtSeconds && p.solvedAtSeconds >= cutoff
+    (p) => !p.isGym && p.solvedAtSeconds && p.solvedAtSeconds >= cutoff
   );
 };
 
@@ -39,13 +39,17 @@ export async function refreshHandleData(handle, options = {}) {
     const targetDateKey = toLocalDateKey(targetEndSeconds);
 
     // Fetch user info and solved problems
-    const [userInfo, solvedProblems] = await Promise.all([
+    const [userInfo, solvedRes] = await Promise.all([
       getUserInfo(handle),
       getSolvedProblems(handle),
     ]);
 
+    const solvedProblems = solvedRes.solvedList || [];
+    const totalSolvedCount = solvedRes.totalSolvedCount || 0;
+
     // Deduplicate problems; treat Div1/Div2 mirrored problems as the same
     const areSameProblem = (a, b) => {
+      if (Boolean(a.isGym) !== Boolean(b.isGym)) return false;
       const nameMatch = (a.name || "").toLowerCase() === (b.name || "").toLowerCase();
       const contestClose =
         Number.isFinite(a.contestId) &&
@@ -104,7 +108,7 @@ export async function refreshHandleData(handle, options = {}) {
               {
                 handle,
                 maxRating: userInfo.maxRating,
-                totalSolved: uniqueSolved.length,
+                totalSolved: totalSolvedCount,
                 currentRating: 1000,
                 lastUpdateDate: targetDateKey,
               },
@@ -135,7 +139,7 @@ export async function refreshHandleData(handle, options = {}) {
 
     // ── Continue with normal data refresh ─────────────────────────────────────
     const existingMeta = await HandleMeta.findOne({ handle }).lean();
-    const totalSolved = uniqueSolved.length;
+    const totalSolved = totalSolvedCount;
 
     const targetDayStart = startOfLocalDayFromDateKey(targetDateKey);
     const lastSixDates = Array.from({ length: 6 }, (_, i) =>
@@ -220,13 +224,16 @@ export async function refreshHandleData(handle, options = {}) {
     }
     currentRating = historyMap.get(targetDateKey)?.rating ?? 1000;
 
-    // Save maxRating along with other meta — this is the critical fix
+    const finalTotalSolved = (handleDoc && Number.isFinite(handleDoc.customTotalSolved))
+      ? handleDoc.customTotalSolved
+      : totalSolved;
+
     await HandleMeta.findOneAndUpdate(
       { handle },
       {
         handle,
         maxRating: userInfo.maxRating,
-        totalSolved,
+        totalSolved: finalTotalSolved,
         currentRating,
         lastUpdateDate: targetDateKey,
       },
@@ -247,18 +254,20 @@ export async function refreshHandleData(handle, options = {}) {
   }
 }
 
-// Refresh all active handles with delay between each to avoid CF rate-limits
+// Refresh active handles with delay between each to avoid CF rate-limits
 export async function refreshAllHandles(options = {}) {
-  const { fullHistory = false, forceHandles = [] } = options;
+  const { fullHistory = false, forceHandles = [], includeInactive = false } = options;
   console.log(
-    `Starting refresh for all handles (fullHistory=${fullHistory ? "yes" : "no"})...`
+    `Starting refresh for handles (fullHistory=${fullHistory ? "yes" : "no"}, includeInactive=${includeInactive ? "yes" : "no"})...`
   );
 
-  // Fetch all handles; skip inactive unless they are in forceHandles list
+  // Fetch handles; skip inactive unless includeInactive is true or in forceHandles list
   const allHandles = await Handle.find().select("handle isInactive").lean();
-  const handlesToRefresh = allHandles.filter(
-    (h) => !h.isInactive || forceHandles.includes(h.handle)
-  );
+  const handlesToRefresh = includeInactive
+    ? allHandles
+    : allHandles.filter(
+        (h) => !h.isInactive || forceHandles.includes(h.handle)
+      );
 
   console.log(
     `Refreshing ${handlesToRefresh.length} active handles (${allHandles.length - handlesToRefresh.length} inactive skipped)`
@@ -270,7 +279,7 @@ export async function refreshAllHandles(options = {}) {
     await delay(HANDLE_REFRESH_DELAY_MS);
   }
 
-  console.log("Refresh completed for all handles");
+  console.log("Refresh completed for handles");
 }
 
 // Schedule daily refresh at midnight Bangladesh time (UTC+6 = 18:00 UTC)

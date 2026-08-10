@@ -10,7 +10,7 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const getRatingLevel = (r) => {
-  if (r < 1200) return { level: "Casual",          cls: "casual"      };
+  if (r < 1200) return { level: "Dead",          cls: "casual"      };
   if (r < 1400) return { level: "Warming Up",      cls: "warmup"      };
   if (r < 1800) return { level: "Persistent",      cls: "persistent"  };
   if (r < 2000) return { level: "Relentless",      cls: "relentless"  };
@@ -129,6 +129,38 @@ const Standings = () => {
   const [rSuccess,  setRSuccess]  = useState("");
   const [rLoading,  setRLoading]  = useState(false);
 
+  // ── Column Sorting State (ephemeral, resets on refresh) ────────────────────
+  const [sortField, setSortField] = useState(null); // null | 'handle' | 'maxRating' | 'solvedCount' | 'standingRating'
+  const [sortDir,   setSortDir]   = useState('desc');
+
+  const handleSortClick = (field) => {
+    if (sortField === field) {
+      setSortDir((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortField(field);
+      setSortDir(field === 'handle' ? 'asc' : 'desc');
+    }
+  };
+
+  const sortedStandings = useMemo(() => {
+    if (!sortField) return standings;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...standings].sort((a, b) => {
+      let valA = a[sortField];
+      let valB = b[sortField];
+      if (sortField === 'handle') {
+        valA = (a.name || a.handle || "").toLowerCase();
+        valB = (b.name || b.handle || "").toLowerCase();
+        return valA.localeCompare(valB) * dir;
+      }
+      valA = Number(valA) || 0;
+      valB = Number(valB) || 0;
+      if (valA !== valB) return (valA - valB) * dir;
+      if (b.standingRating !== a.standingRating) return b.standingRating - a.standingRating;
+      return (b.maxRating || 0) - (a.maxRating || 0);
+    });
+  }, [standings, sortField, sortDir]);
+
   // ── Computed ───────────────────────────────────────────────────────────────
   const availableBatches = useMemo(() => {
     const s = new Set();
@@ -138,9 +170,9 @@ const Standings = () => {
 
   const globalRankMap = useMemo(() => {
     const m = new Map();
-    standings.forEach((r, i) => m.set(String(r.id), i + 1));
+    sortedStandings.forEach((r, i) => m.set(String(r.id), i + 1));
     return m;
-  }, [standings]);
+  }, [sortedStandings]);
 
   const cfMaxRankMap = useMemo(() => {
     const m = new Map();
@@ -155,12 +187,12 @@ const Standings = () => {
   }, [standings]);
 
   const batchFiltered = useMemo(() => {
-    if (!selectedBatches.length) return standings;
-    return standings.filter((r) => {
+    if (!selectedBatches.length) return sortedStandings;
+    return sortedStandings.filter((r) => {
       const d = extractBatchDigits(r.batch);
       return d && selectedBatches.some((b) => extractBatchDigits(b) === d);
     });
-  }, [standings, selectedBatches]);
+  }, [sortedStandings, selectedBatches]);
 
   const displayed = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -461,10 +493,18 @@ const Standings = () => {
                 <thead>
                   <tr>
                     <th style={{ width: 50 }}>#</th>
-                    <th>Handle</th>
-                    <th style={{ width: 100 }}>CF Max</th>
-                    <th style={{ width: 80 }}>Solved</th>
-                    <th style={{ width: 160 }}>Practice Rating</th>
+                    <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("handle")}>
+                      Handle / Name {sortField === "handle" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th style={{ width: 100, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("maxRating")}>
+                      CF Max {sortField === "maxRating" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th style={{ width: 80, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("solvedCount")}>
+                      Solved {sortField === "solvedCount" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th style={{ width: 160, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("standingRating")}>
+                      Practice Rating {sortField === "standingRating" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    </th>
                     <th style={{ width: 60, textAlign: "center" }}>Info</th>
                     <th style={{ width: 90, textAlign: "center" }}>Activity</th>
                   </tr>

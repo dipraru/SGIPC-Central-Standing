@@ -57,20 +57,28 @@ export const getSolvedProblems = async (handle) => {
     }
 
     const solved = new Map();
+    const allSolvedSet = new Set();
+
     for (const submission of data.result) {
-      if (submission.verdict !== "OK") {
-        continue;
-      }
-      const problemsetName = submission.problem?.problemsetName;
-      const contestId = submission.problem?.contestId;
-      const isGym =
-        problemsetName === "gym" ||
-        (Number.isFinite(contestId) && contestId >= 100000);
-      if (isGym) {
+      if (submission.verdict !== "OK" || !submission.problem) {
         continue;
       }
       const problem = submission.problem;
-      const key = `${problem.contestId}-${problem.index}`;
+      const problemsetName = problem.problemsetName;
+      const contestId = problem.contestId;
+      const isGym =
+        problemsetName === "gym" ||
+        (Number.isFinite(contestId) && contestId >= 100000);
+
+      // Key for total solved count (every unique problem on Codeforces)
+      const globalKey = contestId && problem.index
+        ? `${problemsetName || "cf"}-${contestId}-${problem.index}`
+        : `${problemsetName || "cf"}-${problem.name}`;
+      allSolvedSet.add(globalKey);
+
+      const key = isGym
+        ? `gym-${contestId}-${problem.index}`
+        : `${contestId}-${problem.index}`;
       const solvedAtSeconds = submission.creationTimeSeconds;
       if (!solved.has(key)) {
         solved.set(key, {
@@ -80,7 +88,7 @@ export const getSolvedProblems = async (handle) => {
           index: problem.index,
           solvedAtSeconds,
           isRated: Boolean(problem.rating),
-          isGym,
+          isGym: Boolean(isGym),
         });
       } else {
         const existing = solved.get(key);
@@ -90,6 +98,9 @@ export const getSolvedProblems = async (handle) => {
       }
     }
 
-    return Array.from(solved.values());
+    return {
+      solvedList: Array.from(solved.values()),
+      totalSolvedCount: allSolvedSet.size,
+    };
   });
 };

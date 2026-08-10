@@ -10,13 +10,13 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const getRatingLevel = (r) => {
-  if (r < 1200) return { level: "Dead",        cls: "dead"       };
-  if (r < 1400) return { level: "WarmUp",      cls: "warmup"     };
-  if (r < 1800) return { level: "Trying",      cls: "trying"     };
-  if (r < 2000) return { level: "TryingHard",  cls: "tryinghard" };
-  if (r < 2400) return { level: "Pushing",     cls: "pushing"    };
-  if (r < 3000) return { level: "Hardcore",    cls: "hardcore"   };
-  return            { level: "⚡ Aliens",    cls: "aliens"     };
+  if (r < 1200) return { level: "Dead",          cls: "casual"      };
+  if (r < 1400) return { level: "Warming Up",      cls: "warmup"      };
+  if (r < 1800) return { level: "Persistent",      cls: "persistent"  };
+  if (r < 2000) return { level: "Relentless",      cls: "relentless"  };
+  if (r < 2400) return { level: "Unstoppable",      cls: "unstoppable" };
+  if (r < 3000) return { level: "Problem Slayer",  cls: "slayer"      };
+  return            { level: "👑 Practice Legend", cls: "legend"      };
 };
 const rankCls = (n) => n === 1 ? "gold" : n === 2 ? "silver" : n === 3 ? "bronze" : "default";
 
@@ -129,6 +129,38 @@ const Standings = () => {
   const [rSuccess,  setRSuccess]  = useState("");
   const [rLoading,  setRLoading]  = useState(false);
 
+  // ── Column Sorting State (ephemeral, resets on refresh) ────────────────────
+  const [sortField, setSortField] = useState(null); // null | 'handle' | 'maxRating' | 'solvedCount' | 'standingRating'
+  const [sortDir,   setSortDir]   = useState('desc');
+
+  const handleSortClick = (field) => {
+    if (sortField === field) {
+      setSortDir((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortField(field);
+      setSortDir(field === 'handle' ? 'asc' : 'desc');
+    }
+  };
+
+  const sortedStandings = useMemo(() => {
+    if (!sortField) return standings;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...standings].sort((a, b) => {
+      let valA = a[sortField];
+      let valB = b[sortField];
+      if (sortField === 'handle') {
+        valA = (a.name || a.handle || "").toLowerCase();
+        valB = (b.name || b.handle || "").toLowerCase();
+        return valA.localeCompare(valB) * dir;
+      }
+      valA = Number(valA) || 0;
+      valB = Number(valB) || 0;
+      if (valA !== valB) return (valA - valB) * dir;
+      if (b.standingRating !== a.standingRating) return b.standingRating - a.standingRating;
+      return (b.maxRating || 0) - (a.maxRating || 0);
+    });
+  }, [standings, sortField, sortDir]);
+
   // ── Computed ───────────────────────────────────────────────────────────────
   const availableBatches = useMemo(() => {
     const s = new Set();
@@ -138,17 +170,29 @@ const Standings = () => {
 
   const globalRankMap = useMemo(() => {
     const m = new Map();
-    standings.forEach((r, i) => m.set(String(r.id), i + 1));
+    sortedStandings.forEach((r, i) => m.set(String(r.id), i + 1));
+    return m;
+  }, [sortedStandings]);
+
+  const cfMaxRankMap = useMemo(() => {
+    const m = new Map();
+    const sortedByMax = [...standings].sort((a, b) => {
+      if ((b.maxRating || 0) !== (a.maxRating || 0)) {
+        return (b.maxRating || 0) - (a.maxRating || 0);
+      }
+      return (a.roll || "").localeCompare(b.roll || "", undefined, { numeric: true, sensitivity: "base" });
+    });
+    sortedByMax.forEach((r, i) => m.set(String(r.id), i + 1));
     return m;
   }, [standings]);
 
   const batchFiltered = useMemo(() => {
-    if (!selectedBatches.length) return standings;
-    return standings.filter((r) => {
+    if (!selectedBatches.length) return sortedStandings;
+    return sortedStandings.filter((r) => {
       const d = extractBatchDigits(r.batch);
       return d && selectedBatches.some((b) => extractBatchDigits(b) === d);
     });
-  }, [standings, selectedBatches]);
+  }, [sortedStandings, selectedBatches]);
 
   const displayed = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -430,13 +474,13 @@ const Standings = () => {
               <div className="rating-legend">
                 <strong>Tiers:</strong>
                 {[
-                  { cls: "dead",       label: "<1200 Dead"       },
-                  { cls: "warmup",     label: "<1400 WarmUp"     },
-                  { cls: "trying",     label: "<1800 Trying"     },
-                  { cls: "tryinghard", label: "<2000 TryingHard" },
-                  { cls: "pushing",    label: "<2400 Pushing"    },
-                  { cls: "hardcore",   label: "<3000 Hardcore"   },
-                  { cls: "aliens",     label: "≥3000 Aliens"     },
+                  { cls: "casual",      label: "<1200 Casual"          },
+                  { cls: "warmup",      label: "<1400 Warming Up"      },
+                  { cls: "persistent",  label: "<1800 Persistent"      },
+                  { cls: "relentless",  label: "<2000 Relentless"      },
+                  { cls: "unstoppable", label: "<2400 Unstoppable"      },
+                  { cls: "slayer",      label: "<3000 Problem Slayer"  },
+                  { cls: "legend",      label: "≥3000 Practice Legend" },
                 ].map(({ cls, label }) => (
                   <div key={cls} className="legend-item">
                     <div className={`legend-color ${cls}`} />
@@ -449,10 +493,18 @@ const Standings = () => {
                 <thead>
                   <tr>
                     <th style={{ width: 50 }}>#</th>
-                    <th>Handle</th>
-                    <th style={{ width: 100 }}>CF Max</th>
-                    <th style={{ width: 80 }}>Solved</th>
-                    <th style={{ width: 160 }}>Practice Rating</th>
+                    <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("handle")}>
+                      Handle / Name {sortField === "handle" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th style={{ width: 100, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("maxRating")}>
+                      CF Max {sortField === "maxRating" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th style={{ width: 80, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("solvedCount")}>
+                      Solved {sortField === "solvedCount" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    </th>
+                    <th style={{ width: 160, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("standingRating")}>
+                      Practice Rating {sortField === "standingRating" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    </th>
                     <th style={{ width: 60, textAlign: "center" }}>Info</th>
                     <th style={{ width: 90, textAlign: "center" }}>Activity</th>
                   </tr>
@@ -767,13 +819,14 @@ const Standings = () => {
             </div>
             <div className="modal-body">
               {[
-                ["Handle",         <a href={`https://codeforces.com/profile/${infoModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{infoModal.handle}</a>],
-                ["Name",           infoModal.name  || "Not provided"],
-                ["Roll",           infoModal.roll  || "Not provided"],
-                ["Batch",          normalizeBatch(infoModal.batch) || infoModal.batch || "Not provided"],
-                ["CF Max Rating",  <span className="stat-badge rating">{infoModal.maxRating || "—"}</span>],
-                ["Practice Rating",<span style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>{infoModal.standingRating}</span>],
-                ["Global Rank",    <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>#{globalRankMap.get(String(infoModal.id)) ?? "?"}</span>],
+                ["Handle",                <a href={`https://codeforces.com/profile/${infoModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{infoModal.handle}</a>],
+                ["Name",                  infoModal.name  || "Not provided"],
+                ["Roll",                  infoModal.roll  || "Not provided"],
+                ["Batch",                 normalizeBatch(infoModal.batch) || infoModal.batch || "Not provided"],
+                ["CF Max Rating",         <span className="stat-badge rating">{infoModal.maxRating || "—"}</span>],
+                ["Practice Rating",       <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>{infoModal.standingRating}</span>],
+                ["Global Rank (Practice)",<span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--primary)" }}>#{globalRankMap.get(String(infoModal.id)) ?? "?"}</span>],
+                ["Global Rank (CF Max)",  <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--warning)" }}>#{cfMaxRankMap.get(String(infoModal.id)) ?? "?"}</span>],
               ].map(([label, value]) => (
                 <div key={label} className="detail-row">
                   <span className="detail-label">{label}</span>
@@ -800,13 +853,14 @@ const Standings = () => {
             </div>
             <div className="modal-body">
               {[
-                ["Handle",        <a href={`https://codeforces.com/profile/${inactiveModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{inactiveModal.handle}</a>],
-                ["Name",          inactiveModal.name  || "Not provided"],
-                ["Batch",         normalizeBatch(inactiveModal.batch) || inactiveModal.batch || "Not provided"],
-                ["CF Max Rating", <span className="stat-badge rating">{inactiveModal.maxRating || "—"}</span>],
-                ["Total Solved",  <span className="stat-badge solved">{inactiveModal.totalSolved}</span>],
-                ["Inactive Since",inactiveModal.inactiveSince ? new Date(inactiveModal.inactiveSince).toLocaleDateString() : "Unknown"],
-                ["Status",        <span className="inactive-badge">💤 Inactive</span>],
+                ["Handle",               <a href={`https://codeforces.com/profile/${inactiveModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{inactiveModal.handle}</a>],
+                ["Name",                 inactiveModal.name  || "Not provided"],
+                ["Batch",                normalizeBatch(inactiveModal.batch) || inactiveModal.batch || "Not provided"],
+                ["CF Max Rating",        <span className="stat-badge rating">{inactiveModal.maxRating || "—"}</span>],
+                ["Global Rank (CF Max)", <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--warning)" }}>#{cfMaxRankMap.get(String(inactiveModal.id)) ?? "?"}</span>],
+                ["Total Solved",         <span className="stat-badge solved">{inactiveModal.totalSolved}</span>],
+                ["Inactive Since",       inactiveModal.inactiveSince ? new Date(inactiveModal.inactiveSince).toLocaleDateString() : "Unknown"],
+                ["Status",               <span className="inactive-badge">💤 Inactive</span>],
               ].map(([label, value]) => (
                 <div key={label} className="detail-row">
                   <span className="detail-label">{label}</span>

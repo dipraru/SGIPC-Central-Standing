@@ -99,8 +99,27 @@ router.put("/profile", authRequired, async (req, res) => {
 });
 
 router.get("/handles", authRequired, async (req, res) => {
-  const handles = await Handle.find().sort({ createdAt: -1 });
-  return res.json(handles);
+  const handles = await Handle.find().lean();
+  const metas = await HandleMeta.find().lean();
+  const metaMap = new Map(metas.map((m) => [m.handle, m]));
+
+  const results = handles.map((h) => {
+    const meta = metaMap.get(h.handle);
+    return {
+      _id: h._id,
+      handle: h.handle,
+      name: h.name || "",
+      roll: h.roll || "",
+      batch: h.batch || "",
+      isInactive: h.isInactive || false,
+      inactiveSince: h.inactiveSince || null,
+      maxRating: meta?.maxRating ?? 0,
+      solvedCount: meta?.totalSolved ?? 0,
+      standingRating: meta?.currentRating ?? 1000,
+    };
+  });
+
+  return res.json(results);
 });
 
 router.post("/handles", authRequired, async (req, res) => {
@@ -143,20 +162,32 @@ router.post("/handles", authRequired, async (req, res) => {
 });
 
 router.put("/handles/:id", authRequired, async (req, res) => {
-  const { name, roll, batch } = req.body;
+  const { name, roll, batch, customTotalSolved } = req.body;
 
-  const updated = await Handle.findByIdAndUpdate(
-    req.params.id,
-    { 
-      name: name?.trim() || "",
-      roll: roll?.trim() || "",
-      batch: batch?.trim() || ""
-    },
-    { new: true }
-  );
+  const updateData = {};
+  if (name !== undefined) updateData.name = name?.trim() || "";
+  if (roll !== undefined) updateData.roll = roll?.trim() || "";
+  if (batch !== undefined) updateData.batch = batch?.trim() || "";
+  if (customTotalSolved !== undefined) {
+    updateData.customTotalSolved =
+      customTotalSolved === "" || customTotalSolved === null
+        ? null
+        : Number(customTotalSolved);
+  }
+
+  const updated = await Handle.findByIdAndUpdate(req.params.id, updateData, {
+    new: true,
+  });
 
   if (!updated) {
     return res.status(404).json({ message: "Handle not found" });
+  }
+
+  if (updateData.customTotalSolved !== undefined && updateData.customTotalSolved !== null) {
+    await HandleMeta.updateOne(
+      { handle: updated.handle },
+      { totalSolved: updateData.customTotalSolved }
+    );
   }
 
   return res.json(updated);

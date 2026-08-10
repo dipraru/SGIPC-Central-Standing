@@ -6,6 +6,7 @@ const handleSchema = new mongoose.Schema(
     name: { type: String, default: "" },
     roll: { type: String, default: "" },
     batch: { type: String, default: "" },
+    customTotalSolved: { type: Number, default: null },
     ratings: [
       {
         date: { type: String, required: true },

@@ -317,13 +317,13 @@ body {
   letter-spacing: 0.2px;
   text-transform: uppercase;
 }
-.rating-level.dead       { background: #f3f4f6; color: #9ca3af; }
-.rating-level.warmup     { background: #e0f2fe; color: #0369a1; }
-.rating-level.trying     { background: #ede9fe; color: #6d28d9; }
-.rating-level.tryinghard { background: #fff7ed; color: #c2410c; }
-.rating-level.pushing    { background: #fef2f2; color: #b91c1c; }
-.rating-level.hardcore   { background: #fefce8; color: #854d0e; }
-.rating-level.aliens     { background: #fdf2f8; color: #be185d; }
+.rating-level.casual      { background: #f3f4f6; color: #4b5563; border: 1px solid #e5e7eb; }
+.rating-level.warmup      { background: #ecfeff; color: #0891b2; border: 1px solid #a5f3fc; }
+.rating-level.persistent  { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+.rating-level.relentless  { background: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff; }
+.rating-level.unstoppable { background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5; }
+.rating-level.slayer      { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.rating-level.legend      { background: #7f1d1d; color: #ffffff; border: 1px solid #991b1b; }
 
 /* ═══════════════════════════════════════════════
    RATING LEGEND
@@ -349,13 +349,13 @@ body {
 }
 .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); }
 .legend-color { width: 8px; height: 8px; border-radius: 2px; }
-.legend-color.dead       { background: #9ca3af; }
-.legend-color.warmup     { background: #0ea5e9; }
-.legend-color.trying     { background: #8b5cf6; }
-.legend-color.tryinghard { background: #f59e0b; }
-.legend-color.pushing    { background: #ef4444; }
-.legend-color.hardcore   { background: #eab308; }
-.legend-color.aliens     { background: #ec4899; }
+.legend-color.casual      { background: #9ca3af; }
+.legend-color.warmup      { background: #06b6d4; }
+.legend-color.persistent  { background: #3b82f6; }
+.legend-color.relentless  { background: #a855f7; }
+.legend-color.unstoppable { background: #f97316; }
+.legend-color.slayer      { background: #ef4444; }
+.legend-color.legend      { background: #7f1d1d; }
 
 /* ═══════════════════════════════════════════════
    BUTTONS

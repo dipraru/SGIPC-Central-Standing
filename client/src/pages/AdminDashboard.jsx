@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   createHandle,
   deleteHandle,
@@ -21,62 +21,100 @@ import {
   updatePasskey,
 } from "../api.js";
 
+// ─── Session Tab Persistence ──────────────────────────────────────────────────
+const ADMIN_TAB_KEY = "sgipc_admin_tab";
+const getInitialAdminTab = () => {
+  try { return sessionStorage.getItem(ADMIN_TAB_KEY) || "individual"; } catch { return "individual"; }
+};
+const saveAdminTab = (tab) => {
+  try { sessionStorage.setItem(ADMIN_TAB_KEY, tab); } catch {}
+};
+
+// ─── Batch Utilities ──────────────────────────────────────────────────────────
+const extractBatchDigits = (b) => { const m = (b || "").match(/(\d{2})$/); return m ? m[1] : null; };
+const normalizeBatch     = (b) => { const d = extractBatchDigits(b); return d ? `2K${d}` : null; };
+
+const emptyMember = () => ({ handle: "", name: "", roll: "", batch: "" });
+
 const AdminDashboard = () => {
-  const [activeTab, setActiveTab] = useState("individual");
+  const [activeTab, setActiveTab] = useState(getInitialAdminTab);
+  const switchTab = (tab) => { setActiveTab(tab); saveAdminTab(tab); };
+
+  // Data states
   const [handles, setHandles] = useState([]);
+  const [vjudgeTeams, setVjudgeTeams] = useState([]);
+  const [vjudgeContests, setVjudgeContests] = useState([]);
+  const [vjudgeConfig, setVjudgeConfig] = useState({ eloMode: "normal" });
+  const [requests, setRequests] = useState([]);
+  const [requestsCount, setRequestsCount] = useState(0);
+
+  // Load states
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsError, setRequestsError] = useState("");
+
+  // Filters & search
+  const [selectedBatches, setSelectedBatches] = useState([]);
+  const [batchFilterOpen, setBatchFilterOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Modals
+  const [addHandleModalOpen, setAddHandleModalOpen] = useState(false);
   const [newHandle, setNewHandle] = useState("");
   const [newName, setNewName] = useState("");
   const [newRoll, setNewRoll] = useState("");
   const [newBatch, setNewBatch] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [isAddingHandle, setIsAddingHandle] = useState(false);
+  const [addHandleError, setAddHandleError] = useState("");
+
+  const [addTeamModalOpen, setAddTeamModalOpen] = useState(false);
+  const [teamName, setTeamName] = useState("");
+  const [teamMembers, setTeamMembers] = useState([emptyMember(), emptyMember(), emptyMember()]);
+  const [isAddingTeam, setIsAddingTeam] = useState(false);
+  const [addTeamError, setAddTeamError] = useState("");
+
+  const [addContestModalOpen, setAddContestModalOpen] = useState(false);
+  const [contestIdInput, setContestIdInput] = useState("");
+  const [contestTitleInput, setContestTitleInput] = useState("");
+  const [isAddingContest, setIsAddingContest] = useState(false);
+
+  const [handleDetailModal, setHandleDetailModal] = useState(null); // handle object | null
+  const [requestDetailModal, setRequestDetailModal] = useState(null); // request object | null
+
+  // Editing states
   const [editingHandleId, setEditingHandleId] = useState(null);
   const [editingName, setEditingName] = useState("");
   const [editingRoll, setEditingRoll] = useState("");
   const [editingBatch, setEditingBatch] = useState("");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalData, setModalData] = useState(null);
-  const [teamName, setTeamName] = useState("");
-  const [teamAliases, setTeamAliases] = useState("");
-  const [contestIdInput, setContestIdInput] = useState("");
-  const [contestTitleInput, setContestTitleInput] = useState("");
-  const [vjudgeTeams, setVjudgeTeams] = useState([]);
-  const [vjudgeContests, setVjudgeContests] = useState([]);
-  const [vjudgeConfig, setVjudgeConfig] = useState({ eloMode: "normal" });
+
   const [editingTeamId, setEditingTeamId] = useState(null);
   const [editingTeamName, setEditingTeamName] = useState("");
   const [editingTeamAliases, setEditingTeamAliases] = useState("");
+
   const [editingContestId, setEditingContestId] = useState(null);
   const [editingContestValue, setEditingContestValue] = useState("");
   const [editingContestTitle, setEditingContestTitle] = useState("");
   const [editingContestEnabled, setEditingContestEnabled] = useState(true);
-  const [isAddingHandle, setIsAddingHandle] = useState(false);
-  const [handleAddSuccess, setHandleAddSuccess] = useState(false);
-  const [deletingHandleId, setDeletingHandleId] = useState(null);
-  const [handleDeleteSuccessId, setHandleDeleteSuccessId] = useState(null);
+
+  // Request actions
   const [approvingRequestId, setApprovingRequestId] = useState(null);
   const [rejectingRequestId, setRejectingRequestId] = useState(null);
   const [requestSuccessId, setRequestSuccessId] = useState(null);
-  const [requests, setRequests] = useState([]);
-  const [requestsLoading, setRequestsLoading] = useState(false);
-  const [requestsError, setRequestsError] = useState("");
-  const [requestsCount, setRequestsCount] = useState(0);
-  const [passkeyValue, setPasskeyValue] = useState("");
-  const [passkeyConfirm, setPasskeyConfirm] = useState("");
-  const [passkeyMessage, setPasskeyMessage] = useState("");
+
+  // Admin settings modals
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
+  const [credentialTab, setCredentialTab] = useState("username");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [credMessage, setCredMessage] = useState("");
   const [credError, setCredError] = useState("");
-  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
-  const [credentialTab, setCredentialTab] = useState("username");
+
   const [showPasskeyModal, setShowPasskeyModal] = useState(false);
-  const [selectedBatches, setSelectedBatches] = useState([]);
-  const [batchFilterOpen, setBatchFilterOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [requestDetailModal, setRequestDetailModal] = useState(null); // request object | null
+  const [passkeyValue, setPasskeyValue] = useState("");
+  const [passkeyConfirm, setPasskeyConfirm] = useState("");
+  const [passkeyMessage, setPasskeyMessage] = useState("");
 
   const handleAuthError = (err) => {
     if (err?.response?.status === 401) {
@@ -87,78 +125,71 @@ const AdminDashboard = () => {
     return false;
   };
 
-  // Extract last 2 digits from batch string
-  const extractBatchDigits = (batchStr) => {
-    if (!batchStr) return null;
-    const match = batchStr.match(/(\d{2})$/);
-    return match ? match[1] : null;
-  };
-
-  // Normalize batch to format like "2K21"
-  const normalizeBatch = (batchStr) => {
-    const digits = extractBatchDigits(batchStr);
-    return digits ? `2K${digits}` : null;
-  };
-
-  // Get all unique batches from handles
-  const getAvailableBatches = () => {
-    const batchSet = new Set();
-    handles.forEach((row) => {
-      const normalized = normalizeBatch(row.batch);
-      if (normalized) batchSet.add(normalized);
+  // ── Ranks Pre-computation ──────────────────────────────────────────────────
+  const practiceRankMap = useMemo(() => {
+    const m = new Map();
+    const sorted = [...handles].sort((a, b) => {
+      if ((b.standingRating || 0) !== (a.standingRating || 0)) {
+        return (b.standingRating || 0) - (a.standingRating || 0);
+      }
+      if ((b.maxRating || 0) !== (a.maxRating || 0)) {
+        return (b.maxRating || 0) - (a.maxRating || 0);
+      }
+      return (a.roll || "").localeCompare(b.roll || "", undefined, { numeric: true, sensitivity: "base" });
     });
-    return Array.from(batchSet).sort();
-  };
+    sorted.forEach((h, i) => m.set(String(h._id || h.id), i + 1));
+    return m;
+  }, [handles]);
 
-  // Filter handles by selected batches
-  const getFilteredHandles = () => {
-    if (selectedBatches.length === 0) return handles;
-    
-    return handles.filter((row) => {
-      const rowDigits = extractBatchDigits(row.batch);
-      if (!rowDigits) return false;
-      
-      return selectedBatches.some((selectedBatch) => {
-        const selectedDigits = extractBatchDigits(selectedBatch);
-        return selectedDigits === rowDigits;
+  const cfMaxRankMap = useMemo(() => {
+    const m = new Map();
+    const sorted = [...handles].sort((a, b) => {
+      if ((b.maxRating || 0) !== (a.maxRating || 0)) {
+        return (b.maxRating || 0) - (a.maxRating || 0);
+      }
+      return (a.roll || "").localeCompare(b.roll || "", undefined, { numeric: true, sensitivity: "base" });
+    });
+    sorted.forEach((h, i) => m.set(String(h._id || h.id), i + 1));
+    return m;
+  }, [handles]);
+
+  // ── Filters & Search ───────────────────────────────────────────────────────
+  const availableBatches = useMemo(() => {
+    const s = new Set();
+    handles.forEach((r) => { const n = normalizeBatch(r.batch); if (n) s.add(n); });
+    return Array.from(s).sort();
+  }, [handles]);
+
+  const filteredHandles = useMemo(() => {
+    let list = handles;
+    if (selectedBatches.length > 0) {
+      list = list.filter((r) => {
+        const d = extractBatchDigits(r.batch);
+        return d && selectedBatches.some((b) => extractBatchDigits(b) === d);
       });
-    });
-  };
-
-  // Filter by search query (name, roll, or handle)
-  const getSearchFilteredHandles = () => {
-    const batchFiltered = getFilteredHandles();
-    
-    if (!searchQuery.trim()) return batchFiltered;
-    
-    const query = searchQuery.toLowerCase().trim();
-    return batchFiltered.filter((row) => {
-      const nameMatch = (row.name || "").toLowerCase().includes(query);
-      const rollMatch = (row.roll || "").toLowerCase().includes(query);
-      const handleMatch = (row.handle || "").toLowerCase().includes(query);
-      return nameMatch || rollMatch || handleMatch;
-    });
-  };
-
-  const toggleBatch = (batch) => {
-    setSelectedBatches((prev) =>
-      prev.includes(batch) ? prev.filter((b) => b !== batch) : [...prev, batch]
+    }
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return list;
+    return list.filter(
+      (r) =>
+        (r.handle || "").toLowerCase().includes(q) ||
+        (r.name   || "").toLowerCase().includes(q) ||
+        (r.roll   || "").toLowerCase().includes(q)
     );
-  };
+  }, [handles, selectedBatches, searchQuery]);
 
-  const clearBatchFilter = () => {
-    setSelectedBatches([]);
-  };
+  const toggleBatch = (b) =>
+    setSelectedBatches((p) => (p.includes(b) ? p.filter((x) => x !== b) : [...p, b]));
 
+  // ── Data Loaders ───────────────────────────────────────────────────────────
   const loadHandles = async () => {
     try {
       setLoading(true);
-      setError("");
       const data = await getHandles();
       setHandles(data);
+      setError("");
     } catch (err) {
-      if (handleAuthError(err)) return;
-      setError("Unable to load handles");
+      if (!handleAuthError(err)) setError("Failed to load handles.");
     } finally {
       setLoading(false);
     }
@@ -166,30 +197,28 @@ const AdminDashboard = () => {
 
   const loadVjudge = async () => {
     try {
-      const [teams, contests, config] = await Promise.all([
+      const [teamsData, contestsData, configData] = await Promise.all([
         getVjudgeTeams(),
         getVjudgeContests(),
         getVjudgeConfig(),
       ]);
-      setVjudgeTeams(teams);
-      setVjudgeContests(contests);
-      setVjudgeConfig(config || { eloMode: "normal" });
+      setVjudgeTeams(teamsData);
+      setVjudgeContests(contestsData);
+      setVjudgeConfig(configData);
     } catch (err) {
-      if (handleAuthError(err)) return;
-      setError("Unable to load VJudge settings");
+      handleAuthError(err);
     }
   };
 
   const loadRequests = async () => {
     try {
       setRequestsLoading(true);
-      setRequestsError("");
       const data = await getRequests("pending");
       setRequests(data);
-      setRequestsCount(data.length || 0);
+      setRequestsCount(data.length);
+      setRequestsError("");
     } catch (err) {
-      if (handleAuthError(err)) return;
-      setRequestsError("Unable to load requests");
+      if (!handleAuthError(err)) setRequestsError("Failed to load requests.");
     } finally {
       setRequestsLoading(false);
     }
@@ -201,284 +230,96 @@ const AdminDashboard = () => {
     loadRequests();
   }, []);
 
-  useEffect(() => {
-    if (activeTab === "requests") {
-      loadRequests();
-    }
-  }, [activeTab]);
-
-  const handleCreate = async () => {
-    if (!newHandle.trim()) return;
-    if (isAddingHandle) return;
+  // ── Create Handle ──────────────────────────────────────────────────────────
+  const handleCreateHandle = async () => {
+    setAddHandleError("");
+    if (!newHandle.trim()) return setAddHandleError("Codeforces handle is required.");
+    setIsAddingHandle(true);
     try {
-      setIsAddingHandle(true);
-      setHandleAddSuccess(false);
-      await createHandle({ 
+      await createHandle({
         handle: newHandle.trim(),
         name: newName.trim(),
         roll: newRoll.trim(),
-        batch: newBatch.trim()
+        batch: newBatch.trim(),
       });
-      setNewHandle("");
-      setNewName("");
-      setNewRoll("");
-      setNewBatch("");
-      loadHandles();
-      setHandleAddSuccess(true);
-      setTimeout(() => setHandleAddSuccess(false), 1500);
+      setNewHandle(""); setNewName(""); setNewRoll(""); setNewBatch("");
+      setAddHandleModalOpen(false);
+      await loadHandles();
     } catch (err) {
-      const message = err?.response?.data?.message || "Unable to add handle";
-      setError(message);
+      setAddHandleError(err?.response?.data?.message || "Failed to add handle.");
     } finally {
       setIsAddingHandle(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (deletingHandleId) return;
+  // ── Create Team ────────────────────────────────────────────────────────────
+  const updateTeamMember = (idx, field, val) =>
+    setTeamMembers((p) => p.map((m, i) => (i === idx ? { ...m, [field]: val } : m)));
+
+  const handleCreateTeam = async () => {
+    setAddTeamError("");
+    if (!teamName.trim()) return setAddTeamError("Team name is required.");
+    for (let i = 0; i < 3; i++) {
+      const m = teamMembers[i];
+      if (!m.handle.trim() || !m.name.trim() || !m.roll.trim() || !m.batch.trim())
+        return setAddTeamError(`All fields for Member ${i + 1} are required.`);
+    }
+
+    setIsAddingTeam(true);
     try {
-      setDeletingHandleId(id);
-      setHandleDeleteSuccessId(null);
+      const aliases = teamMembers.map((m) => m.handle.trim()).filter(Boolean);
+      await createVjudgeTeam({ name: teamName.trim(), aliases });
+      setTeamName(""); setTeamMembers([emptyMember(), emptyMember(), emptyMember()]);
+      setAddTeamModalOpen(false);
+      await loadVjudge();
+    } catch (err) {
+      setAddTeamError(err?.response?.data?.message || "Failed to add team.");
+    } finally {
+      setIsAddingTeam(false);
+    }
+  };
+
+  // ── Create Contest ─────────────────────────────────────────────────────────
+  const handleCreateContest = async () => {
+    if (!contestIdInput.trim()) return;
+    setIsAddingContest(true);
+    try {
+      await createVjudgeContest({ contestId: contestIdInput.trim(), title: contestTitleInput.trim() });
+      setContestIdInput(""); setContestTitleInput("");
+      setAddContestModalOpen(false);
+      await loadVjudge();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to add contest.");
+    } finally {
+      setIsAddingContest(false);
+    }
+  };
+
+  // ── Handle Inline Edit ─────────────────────────────────────────────────────
+  const startEditingHandle = (row) => {
+    setEditingHandleId(row._id);
+    setEditingName(row.name || "");
+    setEditingRoll(row.roll || "");
+    setEditingBatch(row.batch || "");
+  };
+
+  const saveEditingHandle = async (id) => {
+    try {
+      await updateHandle(id, { name: editingName.trim(), roll: editingRoll.trim(), batch: editingBatch.trim() });
+      setEditingHandleId(null);
+      await loadHandles();
+    } catch (err) { alert(err?.response?.data?.message || "Failed to update handle."); }
+  };
+
+  const handleDeleteHandle = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this handle?")) return;
+    try {
       await deleteHandle(id);
       await loadHandles();
-      setHandleDeleteSuccessId(id);
-      setTimeout(() => setHandleDeleteSuccessId(null), 1500);
-    } catch (err) {
-      setError("Unable to delete handle");
-    } finally {
-      setDeletingHandleId(null);
-    }
+    } catch (err) { alert(err?.response?.data?.message || "Failed to delete handle."); }
   };
 
-  const startHandleEdit = (handle) => {
-    setEditingHandleId(handle._id);
-    setEditingName(handle.name || "");
-    setEditingRoll(handle.roll || "");
-    setEditingBatch(handle.batch || "");
-  };
-
-  const cancelHandleEdit = () => {
-    setEditingHandleId(null);
-    setEditingName("");
-    setEditingRoll("");
-    setEditingBatch("");
-  };
-
-  const handleUpdateHandle = async (id) => {
-    try {
-      await updateHandle(id, {
-        name: editingName.trim(),
-        roll: editingRoll.trim(),
-        batch: editingBatch.trim()
-      });
-      cancelHandleEdit();
-      loadHandles();
-    } catch (err) {
-      setError("Unable to update handle");
-    }
-  };
-
-  const openModal = (handle) => {
-    setModalData(handle);
-    setModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setModalOpen(false);
-    setModalData(null);
-  };
-
-  const handleAddTeam = async () => {
-    if (!teamName.trim()) return;
-    try {
-      await createVjudgeTeam({
-        name: teamName.trim(),
-        aliases: teamAliases,
-      });
-      setTeamName("");
-      setTeamAliases("");
-      loadVjudge();
-    } catch (err) {
-      setError("Unable to add team");
-    }
-  };
-
-  const handleUpdateUsername = async () => {
-    setCredMessage("");
-    setCredError("");
-    if (!currentPassword.trim()) {
-      setCredError("Current password is required");
-      return;
-    }
-    if (!newUsername.trim()) {
-      setCredError("New username is required");
-      return;
-    }
-    try {
-      const payload = {
-        currentPassword: currentPassword.trim(),
-        newUsername: newUsername.trim(),
-      };
-      const data = await updateAdminCredentials(payload);
-      if (data?.token) {
-        localStorage.setItem("sgipc_token", data.token);
-      }
-      setCredMessage("Username updated successfully");
-      setCurrentPassword("");
-      setNewUsername("");
-    } catch (err) {
-      if (handleAuthError(err)) return;
-      const msg = err?.response?.data?.message || "Unable to update username";
-      setCredError(msg);
-    }
-  };
-
-  const handleUpdatePassword = async () => {
-    setCredMessage("");
-    setCredError("");
-    if (!currentPassword.trim()) {
-      setCredError("Current password is required");
-      return;
-    }
-    if (!newPassword.trim()) {
-      setCredError("New password is required");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setCredError("New passwords do not match");
-      return;
-    }
-    try {
-      const payload = {
-        currentPassword: currentPassword.trim(),
-        newPassword: newPassword.trim(),
-      };
-      const data = await updateAdminCredentials(payload);
-      if (data?.token) {
-        localStorage.setItem("sgipc_token", data.token);
-      }
-      setCredMessage("Password updated successfully");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (err) {
-      if (handleAuthError(err)) return;
-      const msg = err?.response?.data?.message || "Unable to update password";
-      setCredError(msg);
-    }
-  };
-
-  const openCredentialsModal = () => {
-    setShowCredentialsModal(true);
-    setCredentialTab("username");
-    setCredMessage("");
-    setCredError("");
-    setCurrentPassword("");
-    setNewUsername("");
-    setNewPassword("");
-    setConfirmPassword("");
-  };
-
-  const closeCredentialsModal = () => {
-    setShowCredentialsModal(false);
-    setCredMessage("");
-    setCredError("");
-    setCurrentPassword("");
-    setNewUsername("");
-    setNewPassword("");
-    setConfirmPassword("");
-  };
-
-  const openPasskeyModal = () => {
-    setShowPasskeyModal(true);
-    setPasskeyValue("");
-    setPasskeyConfirm("");
-    setPasskeyMessage("");
-  };
-
-  const closePasskeyModal = () => {
-    setShowPasskeyModal(false);
-    setPasskeyMessage("");
-  };
-
-  const handleDeleteTeam = async (id) => {
-    try {
-      await deleteVjudgeTeam(id);
-      loadVjudge();
-    } catch (err) {
-      setError("Unable to delete team");
-    }
-  };
-
-  const handleAddContest = async () => {
-    if (!Number.isFinite(Number(contestIdInput.trim()))) {
-      setError("Contest ID must be a number");
-      return;
-    }
-    try {
-      await createVjudgeContest({
-        contestId: contestIdInput.trim(),
-        title: contestTitleInput.trim(),
-      });
-      setContestIdInput("");
-      setContestTitleInput("");
-      loadVjudge();
-    } catch (err) {
-      setError("Unable to add contest");
-    }
-  };
-
-  const startTeamEdit = (team) => {
-    setEditingTeamId(team._id);
-    setEditingTeamName(team.name || "");
-    setEditingTeamAliases((team.aliases || []).join(", "));
-  };
-
-  const cancelTeamEdit = () => {
-    setEditingTeamId(null);
-    setEditingTeamName("");
-    setEditingTeamAliases("");
-  };
-
-  const handleUpdateTeam = async (teamId) => {
-    if (!editingTeamName.trim()) {
-      setError("Team name is required");
-      return;
-    }
-    try {
-      await updateVjudgeTeam(teamId, {
-        name: editingTeamName.trim(),
-        aliases: editingTeamAliases,
-      });
-      cancelTeamEdit();
-      loadVjudge();
-    } catch (err) {
-      setError("Unable to update team");
-    }
-  };
-
-  const handleToggleContest = async (contest) => {
-    try {
-      await updateVjudgeContest(contest._id, {
-        contestId: contest.contestId,
-        title: contest.title,
-        enabled: !contest.enabled,
-      });
-      loadVjudge();
-    } catch (err) {
-      setError("Unable to update contest");
-    }
-  };
-
-  const handleDeleteContest = async (id) => {
-    try {
-      await deleteVjudgeContest(id);
-      loadVjudge();
-    } catch (err) {
-      setError("Unable to delete contest");
-    }
-  };
-
+  // ── Request Approval ───────────────────────────────────────────────────────
   const handleApproveRequest = async (id) => {
     if (approvingRequestId || rejectingRequestId) return;
     try {
@@ -491,8 +332,7 @@ const AdminDashboard = () => {
       setRequestSuccessId(id);
       setTimeout(() => setRequestSuccessId(null), 1200);
     } catch (err) {
-      const msg = err?.response?.data?.message || "Unable to approve request";
-      setRequestsError(msg);
+      setRequestsError(err?.response?.data?.message || "Unable to approve request");
     } finally {
       setApprovingRequestId(null);
     }
@@ -508,75 +348,40 @@ const AdminDashboard = () => {
       setRequestSuccessId(id);
       setTimeout(() => setRequestSuccessId(null), 1200);
     } catch (err) {
-      const msg = err?.response?.data?.message || "Unable to reject request";
-      setRequestsError(msg);
+      setRequestsError(err?.response?.data?.message || "Unable to reject request");
     } finally {
       setRejectingRequestId(null);
     }
   };
 
+  // ── Passkey & Admin Profile ────────────────────────────────────────────────
   const handleUpdatePasskey = async () => {
     setPasskeyMessage("");
-    if (!passkeyValue.trim() || !passkeyConfirm.trim()) {
-      setPasskeyMessage("Passkey fields are required");
-      return;
-    }
-    if (passkeyValue.trim() !== passkeyConfirm.trim()) {
-      setPasskeyMessage("Passkeys do not match");
-      return;
-    }
+    if (!passkeyValue.trim() || !passkeyConfirm.trim()) return setPasskeyMessage("Passkey fields required.");
+    if (passkeyValue.trim() !== passkeyConfirm.trim()) return setPasskeyMessage("Passkeys do not match.");
     try {
       await updatePasskey({ newPasskey: passkeyValue.trim() });
-      setPasskeyMessage("Passkey updated successfully");
-      setPasskeyValue("");
-      setPasskeyConfirm("");
-      setTimeout(() => setPasskeyMessage(""), 1500);
-    } catch (err) {
-      const msg = err?.response?.data?.message || "Unable to update passkey";
-      setPasskeyMessage(msg);
-    }
+      setPasskeyMessage("Passkey updated successfully.");
+      setPasskeyValue(""); setPasskeyConfirm("");
+      setTimeout(() => setShowPasskeyModal(false), 1200);
+    } catch (err) { setPasskeyMessage(err?.response?.data?.message || "Failed to update passkey."); }
   };
 
-  const startContestEdit = (contest) => {
-    setEditingContestId(contest._id);
-    setEditingContestValue(String(contest.contestId || ""));
-    setEditingContestTitle(contest.title || "");
-    setEditingContestEnabled(Boolean(contest.enabled));
-  };
-
-  const cancelContestEdit = () => {
-    setEditingContestId(null);
-    setEditingContestValue("");
-    setEditingContestTitle("");
-    setEditingContestEnabled(true);
-  };
-
-  const handleUpdateContest = async (contestId) => {
-    if (!Number.isFinite(Number(editingContestValue.trim()))) {
-      setError("Contest ID must be a number");
-      return;
-    }
+  const handleUpdateCredentials = async () => {
+    setCredMessage(""); setCredError("");
+    if (!currentPassword) return setCredError("Current password is required.");
+    if (credentialTab === "username" && !newUsername.trim()) return setCredError("New username is required.");
+    if (credentialTab === "password" && !newPassword) return setCredError("New password is required.");
     try {
-      await updateVjudgeContest(contestId, {
-        contestId: editingContestValue.trim(),
-        title: editingContestTitle.trim(),
-        enabled: editingContestEnabled,
+      await updateAdminCredentials({
+        currentPassword,
+        newUsername: credentialTab === "username" ? newUsername.trim() : undefined,
+        newPassword: credentialTab === "password" ? newPassword : undefined,
       });
-      cancelContestEdit();
-      loadVjudge();
-    } catch (err) {
-      setError("Unable to update contest");
-    }
-  };
-
-  const handleConfigChange = async (event) => {
-    const nextMode = event.target.value;
-    try {
-      const updated = await updateVjudgeConfig({ eloMode: nextMode });
-      setVjudgeConfig(updated);
-    } catch (err) {
-      setError("Unable to update Elo mode");
-    }
+      setCredMessage("Credentials updated successfully!");
+      setCurrentPassword(""); setNewUsername(""); setNewPassword("");
+      setTimeout(() => setShowCredentialsModal(false), 1200);
+    } catch (err) { setCredError(err?.response?.data?.message || "Failed to update credentials."); }
   };
 
   const logout = () => {
@@ -584,679 +389,417 @@ const AdminDashboard = () => {
     window.location.href = "/admin";
   };
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div className="container">
+      {/* ── HERO ──────────────────────────────────────────────────────────── */}
       <div className="hero">
         <div className="hero-inner">
           <div>
-            <span className="badge">Admin Dashboard</span>
-            <h1>Manage SGIPC Platform</h1>
-            <p>Configure handles, teams, and contest settings</p>
+            <span className="badge">Admin Panel</span>
+            <h1>SGIPC <span className="accent">Management</span></h1>
+            <p>Manage standings, handles, teams, and request approvals</p>
           </div>
-          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-            <button className="btn secondary" onClick={openCredentialsModal} style={{ height: "fit-content" }}>
-              Change Credentials
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="secondary sm" onClick={() => { setShowCredentialsModal(true); setCredMessage(""); setCredError(""); }}>
+              🔑 Account Credentials
             </button>
-            <button className="btn secondary" onClick={openPasskeyModal} style={{ height: "fit-content" }}>
-              Change Passkey
+            <button className="secondary sm" onClick={() => { setShowPasskeyModal(true); setPasskeyMessage(""); }}>
+              🔒 Update Passkey
             </button>
-            <button className="btn secondary" onClick={logout} style={{ height: "fit-content" }}>
-              Logout
+            <button className="danger sm" onClick={logout}>
+              Sign Out
             </button>
           </div>
         </div>
       </div>
 
-
-
-      <div className="tabs" style={{ marginBottom: "24px" }}>
-        <button
-          className={`tab ${activeTab === "individual" ? "active" : ""}`}
-          onClick={() => setActiveTab("individual")}
-        >
-          Individual Standings
+      {/* ── TABS (PERSISTENT VIA SESSIONSTORAGE) ───────────────────────────── */}
+      <div className="tabs">
+        <button className={`tab ${activeTab === "individual" ? "active" : ""}`} onClick={() => switchTab("individual")}>
+          🏆 Individual Handles
         </button>
-        <button
-          className={`tab ${activeTab === "team" ? "active" : ""}`}
-          onClick={() => setActiveTab("team")}
-        >
-          Team Standings
+        <button className={`tab ${activeTab === "team" ? "active" : ""}`} onClick={() => switchTab("team")}>
+          👥 Teams &amp; Contests
         </button>
-        <button
-          className={`tab ${activeTab === "requests" ? "active" : ""}`}
-          onClick={() => setActiveTab("requests")}
-        >
-          Requests
+        <button className={`tab ${activeTab === "requests" ? "active" : ""}`} onClick={() => switchTab("requests")}>
+          📥 Requests
           {requestsCount > 0 && (
-            <span
-              style={{
-                marginLeft: 8,
-                minWidth: 20,
-                height: 20,
-                padding: "0 6px",
-                borderRadius: 999,
-                background: "#e53935",
-                color: "white",
-                fontSize: 12,
-                fontWeight: 700,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                lineHeight: 1,
-              }}
-            >
+            <span style={{ marginLeft: 6, background: "var(--danger)", color: "#fff", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>
               {requestsCount}
             </span>
           )}
         </button>
       </div>
 
+      {/* ════════════════════════════════════════════════════════════════════
+          INDIVIDUAL HANDLES TAB
+          ════════════════════════════════════════════════════════════════════ */}
       {activeTab === "individual" && (
         <div className="card">
-          <h2 style={{ marginBottom: "8px" }}>Codeforces Handles</h2>
-          <p style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>Add or remove participant handles for individual standings</p>
-          
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+          <div className="card-header">
             <div>
-              <label className="input-label">Codeforces Handle *</label>
-              <input
-                type="text"
-                placeholder="e.g., tourist"
-                value={newHandle}
-                onChange={(event) => setNewHandle(event.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && handleCreate()}
-              />
+              <h2>Codeforces Participants ({filteredHandles.length})</h2>
+              <p className="card-subtitle">Active individual standings participants</p>
             </div>
-            <div>
-              <label className="input-label">Name</label>
-              <input
-                type="text"
-                placeholder="Full name"
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && handleCreate()}
-              />
-            </div>
-            <div>
-              <label className="input-label">Roll Number</label>
-              <input
-                type="text"
-                placeholder="e.g., 2024001"
-                value={newRoll}
-                onChange={(event) => setNewRoll(event.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && handleCreate()}
-              />
-            </div>
-            <div>
-              <label className="input-label">Batch</label>
-              <input
-                type="text"
-                placeholder="e.g., 2024"
-                value={newBatch}
-                onChange={(event) => setNewBatch(event.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && handleCreate()}
-              />
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
-            <button
-              className="primary"
-              onClick={handleCreate}
-              disabled={isAddingHandle}
-            >
-              {isAddingHandle ? "Adding..." : "Add Handle"}
+            <button className="primary sm" onClick={() => { setAddHandleError(""); setAddHandleModalOpen(true); }}>
+              ＋ Add Participant
             </button>
-            {isAddingHandle && (
-              <div className="loading-spinner" style={{ width: 18, height: 18, borderWidth: 2 }}></div>
-            )}
-            {handleAddSuccess && (
-              <span style={{ color: "var(--success)", fontWeight: 600 }}>✓ Done</span>
-            )}
           </div>
 
-          {/* Batch Filter and Search - Same Row */}
-          {!loading && !error && handles.length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center", justifyContent: "space-between" }}>
-                {/* Batch Filter Section */}
-                <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", flex: 1 }}>
-                  <button
-                    className="btn secondary"
-                    onClick={() => setBatchFilterOpen(!batchFilterOpen)}
-                    style={{
-                      padding: "8px 16px",
-                      fontSize: 14,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    🎓 Filter by Batch
-                    <span style={{ fontSize: 12, opacity: 0.8 }}>
-                      {batchFilterOpen ? "▲" : "▼"}
+          {/* Filter Bar */}
+          {!loading && handles.length > 0 && (
+            <div className="filter-bar">
+              <div className="filter-section">
+                <button className="secondary sm" onClick={() => setBatchFilterOpen(!batchFilterOpen)}>
+                  🎓 Batch{selectedBatches.length > 0 && (
+                    <span style={{ marginLeft: 5, background: "var(--primary)", color: "#fff", borderRadius: 999, padding: "0 6px", fontSize: 10, fontWeight: 700 }}>
+                      {selectedBatches.length}
                     </span>
-                  </button>
-                  {selectedBatches.length > 0 && (
-                    <>
-                      {selectedBatches.map((batch) => (
-                        <span
-                          key={batch}
-                          className="batch-tag"
-                          onClick={() => toggleBatch(batch)}
-                        >
-                          {batch}
-                          <span style={{ fontSize: 14 }}>×</span>
-                        </span>
-                      ))}
-                      <button
-                        className="btn secondary"
-                        onClick={clearBatchFilter}
-                        style={{ padding: "4px 12px", fontSize: 13 }}
-                      >
-                        Clear All
-                      </button>
-                    </>
                   )}
-                </div>
-
-                <div style={{ width: "100%", maxWidth: 400, minWidth: 260 }}>
-                  <div className="search-wrapper">
-                    <span className="search-icon">🔍</span>
-                    <input
-                      type="text"
-                      placeholder="Search by Name, Roll, or Handle..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                    {searchQuery && (
-                      <button className="search-clear" onClick={() => setSearchQuery("")}>×</button>
-                    )}
-                  </div>
-                  {searchQuery && (
-                    <p className="text-xs text-muted" style={{ marginTop: 4, textAlign: "right" }}>
-                      {getSearchFilteredHandles().length} result{getSearchFilteredHandles().length !== 1 ? 's' : ''}
-                    </p>
-                  )}
+                </button>
+                {selectedBatches.map((b) => (
+                  <span key={b} className="batch-tag" onClick={() => toggleBatch(b)}>
+                    {b} <span>×</span>
+                  </span>
+                ))}
+                {selectedBatches.length > 0 && (
+                  <button className="secondary sm" onClick={() => setSelectedBatches([])}>Clear</button>
+                )}
+              </div>
+              <div style={{ width: "100%", maxWidth: 340 }}>
+                <div className="search-wrapper">
+                  <span className="search-icon">🔍</span>
+                  <input
+                    type="text"
+                    placeholder="Search handle, name or roll..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && <button className="search-clear" onClick={() => setSearchQuery("")}>×</button>}
                 </div>
               </div>
-
-              {batchFilterOpen && (
-                <div className="batch-dropdown" style={{ marginTop: 12 }}>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {getAvailableBatches().map((batch) => (
-                      <label
-                        key={batch}
-                        className={`batch-checkbox-label ${selectedBatches.includes(batch) ? "selected" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedBatches.includes(batch)}
-                          onChange={() => toggleBatch(batch)}
-                          style={{ cursor: "pointer" }}
-                        />
-                        <span>{batch}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
-        {loading && (
-          <div className="empty-state">
-            <div className="loading-spinner"></div>
-            <p>Loading handles...</p>
-          </div>
-        )}
-        {!loading && error && <div className="notice" style={{ marginBottom: "16px" }}>{error}</div>}
-        {!loading && !error && handles.length === 0 && (
-          <div className="empty-state">
-            <p>No handles added yet. Add your first Codeforces handle to get started.</p>
-          </div>
-        )}
-        {!loading && !error && handles.length > 0 && (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Handle</th>
-                <th>Name</th>
-                <th>Roll</th>
-                <th>Batch</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {getSearchFilteredHandles().map((row) => (
-                <tr key={row._id}>
-                  <td><strong>{row.handle}</strong></td>
-                  <td>
-                    {editingHandleId === row._id ? (
-                      <input
-                        type="text"
-                        value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        placeholder="Name"
-                        style={{ width: "100%" }}
-                      />
-                    ) : (
-                      row.name || "-"
-                    )}
-                  </td>
-                  <td>
-                    {editingHandleId === row._id ? (
-                      <input
-                        type="text"
-                        value={editingRoll}
-                        onChange={(e) => setEditingRoll(e.target.value)}
-                        placeholder="Roll"
-                        style={{ width: "100%" }}
-                      />
-                    ) : (
-                      row.roll || "-"
-                    )}
-                  </td>
-                  <td>
-                    {editingHandleId === row._id ? (
-                      <input
-                        type="text"
-                        value={editingBatch}
-                        onChange={(e) => setEditingBatch(e.target.value)}
-                        placeholder="Batch"
-                        style={{ width: "100%" }}
-                      />
-                    ) : (
-                      row.batch || "-"
-                    )}
-                  </td>
-                  <td>
-                    <div className="actions" style={{ justifyContent: "flex-end" }}>
-                      {editingHandleId === row._id ? (
-                        <>
-                          <button
-                            className="primary"
-                            onClick={() => handleUpdateHandle(row._id)}
-                          >
-                            Save
-                          </button>
-                          <button
-                            className="secondary"
-                            onClick={cancelHandleEdit}
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="secondary"
-                            onClick={() => openModal(row)}
-                          >
-                            👁️ View
-                          </button>
-                          <button
-                            className="secondary"
-                            onClick={() => startHandleEdit(row)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="danger"
-                            onClick={() => handleDelete(row._id)}
-                            disabled={deletingHandleId === row._id}
-                          >
-                            {deletingHandleId === row._id ? "Deleting..." : "Delete"}
-                          </button>
-                          {deletingHandleId === row._id && (
-                            <div className="loading-spinner" style={{ width: 16, height: 16, borderWidth: 2 }}></div>
-                          )}
-                          {handleDeleteSuccessId === row._id && (
-                            <span style={{ color: "var(--success)", fontWeight: 600 }}>✓ Done</span>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+          {batchFilterOpen && availableBatches.length > 0 && (
+            <div className="batch-dropdown">
+              {availableBatches.map((b) => (
+                <label key={b} className={`batch-checkbox-label ${selectedBatches.includes(b) ? "selected" : ""}`}>
+                  <input type="checkbox" checked={selectedBatches.includes(b)} onChange={() => toggleBatch(b)} style={{ width: "auto", accentColor: "var(--primary)" }} />
+                  {b}
+                </label>
               ))}
-            </tbody>
-          </table>
-        )}
+            </div>
+          )}
+
+          {loading && <div className="empty-state"><div className="loading-spinner" /><p>Loading handles...</p></div>}
+          {!loading && error && <div className="notice error">{error}</div>}
+          {!loading && !error && filteredHandles.length === 0 && (
+            <div className="empty-state"><p>No handles found.</p></div>
+          )}
+
+          {!loading && filteredHandles.length > 0 && (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th style={{ width: 44 }}>#</th>
+                  <th>Handle</th>
+                  <th>Name</th>
+                  <th>Roll</th>
+                  <th>Batch</th>
+                  <th style={{ width: 90 }}>CF Max</th>
+                  <th style={{ width: 50, textAlign: "center" }}>Info</th>
+                  <th style={{ width: 140, textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredHandles.map((row, idx) => {
+                  const isEditing = editingHandleId === row._id;
+                  return (
+                    <tr key={row._id}>
+                      <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)", fontSize: 13 }}>
+                        {idx + 1}
+                      </td>
+                      <td>
+                        <a href={`https://codeforces.com/profile/${row.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">
+                          {row.handle}
+                        </a>
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <input type="text" value={editingName} onChange={(e) => setEditingName(e.target.value)} style={{ padding: "4px 8px" }} />
+                        ) : (
+                          row.name || "—"
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <input type="text" value={editingRoll} onChange={(e) => setEditingRoll(e.target.value)} style={{ padding: "4px 8px" }} />
+                        ) : (
+                          <span className="text-mono">{row.roll || "—"}</span>
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <input type="text" value={editingBatch} onChange={(e) => setEditingBatch(e.target.value)} style={{ padding: "4px 8px" }} />
+                        ) : (
+                          <span className="text-mono">{normalizeBatch(row.batch) || row.batch || "—"}</span>
+                        )}
+                      </td>
+                      <td><span className="stat-badge rating">{row.maxRating || "—"}</span></td>
+                      <td style={{ textAlign: "center" }}>
+                        <button className="icon-btn" onClick={() => setHandleDetailModal(row)} title="View details">👁</button>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                          {isEditing ? (
+                            <>
+                              <button className="primary xs" onClick={() => saveEditingHandle(row._id)}>Save</button>
+                              <button className="secondary xs" onClick={() => setEditingHandleId(null)}>Cancel</button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="secondary xs" onClick={() => startEditingHandle(row)}>Edit</button>
+                              <button className="danger xs" onClick={() => handleDeleteHandle(row._id)}>Delete</button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
+      {/* ════════════════════════════════════════════════════════════════════
+          TEAM STANDINGS TAB
+          ════════════════════════════════════════════════════════════════════ */}
       {activeTab === "team" && (
-      <div className="card">
-        <h2 style={{ marginBottom: "8px" }}>VJudge Team Standings</h2>
-        <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>Configure teams, contests, and Elo rating mode</p>
-
-        <div style={{ padding: "16px", background: "var(--bg-secondary)", borderRadius: "8px", marginBottom: "24px" }}>
-          <h3 style={{ fontSize: "16px", marginBottom: "16px", color: "var(--text-primary)" }}>Add New Team</h3>
-          <div className="vjudge-grid">
+        <div className="card">
+          <div className="card-header">
             <div>
-              <label className="input-label">Team Name</label>
-              <input
-                type="text"
-                placeholder="e.g., SGIPC Alpha"
-                value={teamName}
-                onChange={(event) => setTeamName(event.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && handleAddTeam()}
-              />
-              <p className="input-help">Primary display name for the team</p>
+              <h2>VJudge Teams ({vjudgeTeams.length})</h2>
+              <p className="card-subtitle">Manage teams for team contest standings</p>
             </div>
-            <div>
-              <label className="input-label">Team Aliases</label>
-              <input
-                type="text"
-                placeholder="Comma separated (team_id, alt_id)"
-                value={teamAliases}
-                onChange={(event) => setTeamAliases(event.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && handleAddTeam()}
-              />
-              <p className="input-help">
-                Alternate VJudge IDs for this team (best rank will be used)
-              </p>
-            </div>
-          </div>
-          <button className="primary" onClick={handleAddTeam} style={{ marginTop: "12px" }}>
-            Add Team
-          </button>
-        </div>
-
-        <h3 style={{ fontSize: "16px", marginBottom: "12px", marginTop: "24px", color: "var(--text-primary)" }}>Registered Teams</h3>
-        {vjudgeTeams.length === 0 ? (
-          <div className="empty-state">
-            <p>No teams registered yet. Add your first team to get started.</p>
-          </div>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Team Name</th>
-                <th>Aliases</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {vjudgeTeams.map((team) => (
-                <tr key={team._id}>
-                  <td>
-                    {editingTeamId === team._id ? (
-                      <input
-                        type="text"
-                        value={editingTeamName}
-                        onChange={(event) => setEditingTeamName(event.target.value)}
-                        style={{ width: "100%" }}
-                      />
-                    ) : (
-                      <strong>{team.name}</strong>
-                    )}
-                  </td>
-                  <td>
-                    {editingTeamId === team._id ? (
-                      <input
-                        type="text"
-                        value={editingTeamAliases}
-                        onChange={(event) => setEditingTeamAliases(event.target.value)}
-                        style={{ width: "100%" }}
-                      />
-                    ) : (
-                      <span style={{ color: "var(--text-secondary)" }}>
-                        {team.aliases?.join(", ") || "No aliases"}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <div className="actions" style={{ justifyContent: "flex-end" }}>
-                      {editingTeamId === team._id ? (
-                        <>
-                          <button
-                            className="primary"
-                            onClick={() => handleUpdateTeam(team._id)}
-                          >
-                            Save
-                          </button>
-                          <button className="secondary" onClick={cancelTeamEdit}>
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="secondary"
-                            onClick={() => startTeamEdit(team)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="danger"
-                            onClick={() => handleDeleteTeam(team._id)}
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginTop: "32px" }}>
-          <div style={{ padding: "16px", background: "var(--bg-secondary)", borderRadius: "8px" }}>
-            <h3 style={{ fontSize: "16px", marginBottom: "16px", color: "var(--text-primary)" }}>Add New Contest</h3>
-            <label className="input-label">Contest ID</label>
-            <input
-              type="text"
-              placeholder="e.g., 123456"
-              value={contestIdInput}
-              onChange={(event) => setContestIdInput(event.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && handleAddContest()}
-            />
-            <label className="input-label" style={{ marginTop: "12px" }}>
-              Contest Name (Optional)
-            </label>
-            <input
-              type="text"
-              placeholder="Leave blank to auto-fetch"
-              value={contestTitleInput}
-              onChange={(event) => setContestTitleInput(event.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && handleAddContest()}
-            />
-            <p className="input-help">
-              If left blank, the contest name will be automatically fetched from VJudge
-            </p>
-            <button className="primary" onClick={handleAddContest} style={{ marginTop: "12px" }}>
-              Add Contest
+            <button className="primary sm" onClick={() => { setAddTeamError(""); setAddTeamModalOpen(true); }}>
+              ＋ Add Team
             </button>
           </div>
-          <div style={{ padding: "16px", background: "var(--bg-secondary)", borderRadius: "8px" }}>
-            <h3 style={{ fontSize: "16px", marginBottom: "16px", color: "var(--text-primary)" }}>Elo Rating Mode</h3>
-            <div className="radio-group">
-              <label className="radio-option">
-                <input
-                  type="radio"
-                  name="eloMode"
-                  value="normal"
-                  checked={vjudgeConfig.eloMode === "normal"}
-                  onChange={handleConfigChange}
-                />
-                <div>
-                  <strong>Classic Elo</strong>
-                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "4px 0 0 0" }}>Standard rating system with gains and losses</p>
-                </div>
-              </label>
-              <label className="radio-option">
-                <input
-                  type="radio"
-                  name="eloMode"
-                  value="gain-only"
-                  checked={vjudgeConfig.eloMode === "gain-only"}
-                  onChange={handleConfigChange}
-                />
-                <div>
-                  <strong>Gain-Only</strong>
-                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "4px 0 0 0" }}>Rating only increases, never decreases</p>
-                </div>
-              </label>
-              <label className="radio-option">
-                <input
-                  type="radio"
-                  name="eloMode"
-                  value="zero-participation"
-                  checked={vjudgeConfig.eloMode === "zero-participation"}
-                  onChange={handleConfigChange}
-                />
-                <div>
-                  <strong>Mandatory Participation</strong>
-                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "4px 0 0 0" }}>Missing teams treated as 0 solves</p>
-                </div>
-              </label>
+
+          {/* Teams Table */}
+          {vjudgeTeams.length === 0 ? (
+            <div className="empty-state"><p>No teams registered yet.</p></div>
+          ) : (
+            <table className="table" style={{ marginBottom: 32 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 44 }}>#</th>
+                  <th>Team Name</th>
+                  <th>Member Handles</th>
+                  <th style={{ width: 140, textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vjudgeTeams.map((team, idx) => {
+                  const isEditing = editingTeamId === team._id;
+                  return (
+                    <tr key={team._id}>
+                      <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>{idx + 1}</td>
+                      <td>
+                        {isEditing ? (
+                          <input type="text" value={editingTeamName} onChange={(e) => setEditingTeamName(e.target.value)} style={{ padding: "4px 8px" }} />
+                        ) : (
+                          <strong style={{ color: "var(--text-primary)" }}>{team.name}</strong>
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <input type="text" value={editingTeamAliases} onChange={(e) => setEditingTeamAliases(e.target.value)} style={{ padding: "4px 8px" }} />
+                        ) : (
+                          <span className="text-mono" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                            {team.aliases?.join(", ") || "—"}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                          {isEditing ? (
+                            <>
+                              <button className="primary xs" onClick={async () => {
+                                const aliases = editingTeamAliases.split(",").map((x) => x.trim()).filter(Boolean);
+                                await updateVjudgeTeam(team._id, { name: editingTeamName.trim(), aliases });
+                                setEditingTeamId(null);
+                                await loadVjudge();
+                              }}>Save</button>
+                              <button className="secondary xs" onClick={() => setEditingTeamId(null)}>Cancel</button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="secondary xs" onClick={() => {
+                                setEditingTeamId(team._id);
+                                setEditingTeamName(team.name);
+                                setEditingTeamAliases(team.aliases?.join(", ") || "");
+                              }}>Edit</button>
+                              <button className="danger xs" onClick={async () => {
+                                if (window.confirm("Delete this team?")) {
+                                  await deleteVjudgeTeam(team._id);
+                                  await loadVjudge();
+                                }
+                              }}>Delete</button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+
+          <div className="section-divider" />
+
+          {/* Contests Section */}
+          <div className="card-header" style={{ marginTop: 24 }}>
+            <div>
+              <h2>VJudge Contests ({vjudgeContests.length})</h2>
+              <p className="card-subtitle">Contests included in team Elo rating calculation</p>
+            </div>
+            <button className="secondary sm" onClick={() => setAddContestModalOpen(true)}>
+              ＋ Add Contest
+            </button>
+          </div>
+
+          {vjudgeContests.length === 0 ? (
+            <div className="empty-state"><p>No contests added yet.</p></div>
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th style={{ width: 110 }}>Contest ID</th>
+                  <th>Title</th>
+                  <th style={{ width: 90 }}>Status</th>
+                  <th style={{ width: 140, textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vjudgeContests.map((c) => {
+                  const isEditing = editingContestId === c._id;
+                  return (
+                    <tr key={c._id}>
+                      <td style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>{c.contestId}</td>
+                      <td>
+                        {isEditing ? (
+                          <input type="text" value={editingContestTitle} onChange={(e) => setEditingContestTitle(e.target.value)} style={{ padding: "4px 8px" }} />
+                        ) : (
+                          c.title || "Untitled Contest"
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <label style={{ fontSize: 12, cursor: "pointer" }}>
+                            <input type="checkbox" checked={editingContestEnabled} onChange={(e) => setEditingContestEnabled(e.target.checked)} style={{ width: "auto" }} /> Enabled
+                          </label>
+                        ) : (
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: c.enabled !== false ? "var(--success-light)" : "var(--bg-subtle)", color: c.enabled !== false ? "var(--success)" : "var(--text-muted)" }}>
+                            {c.enabled !== false ? "Active" : "Disabled"}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                          {isEditing ? (
+                            <>
+                              <button className="primary xs" onClick={async () => {
+                                await updateVjudgeContest(c._id, { title: editingContestTitle.trim(), enabled: editingContestEnabled });
+                                setEditingContestId(null);
+                                await loadVjudge();
+                              }}>Save</button>
+                              <button className="secondary xs" onClick={() => setEditingContestId(null)}>Cancel</button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="secondary xs" onClick={() => {
+                                setEditingContestId(c._id);
+                                setEditingContestTitle(c.title || "");
+                                setEditingContestEnabled(c.enabled !== false);
+                              }}>Edit</button>
+                              <button className="danger xs" onClick={async () => {
+                                if (window.confirm("Delete contest?")) {
+                                  await deleteVjudgeContest(c._id);
+                                  await loadVjudge();
+                                }
+                              }}>Delete</button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+
+          {/* Contest Mode Config */}
+          <div style={{ marginTop: 24, padding: 16, background: "var(--bg-subtle)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)" }}>
+            <div className="field" style={{ maxWidth: 300 }}>
+              <label>Team Elo Rating Mode</label>
+              <select
+                value={vjudgeConfig.eloMode || "normal"}
+                onChange={async (e) => {
+                  const mode = e.target.value;
+                  setVjudgeConfig((p) => ({ ...p, eloMode: mode }));
+                  await updateVjudgeConfig({ eloMode: mode });
+                }}
+              >
+                <option value="normal">Classic Elo (standard wins/losses)</option>
+                <option value="gain-only">Gain-Only Elo (no loss penalization)</option>
+                <option value="zero-participation">Participation Required (unattended = loss)</option>
+              </select>
             </div>
           </div>
         </div>
-
-        <h3 style={{ fontSize: "16px", marginBottom: "12px", marginTop: "32px", color: "var(--text-primary)" }}>Registered Contests</h3>
-        {vjudgeContests.length === 0 ? (
-          <div className="empty-state">
-            <p>No contests registered yet. Add your first contest to get started.</p>
-          </div>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Contest ID</th>
-                <th>Contest Name</th>
-                <th>Status</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {vjudgeContests.map((contest) => (
-                <tr key={contest._id}>
-                  <td>
-                    {editingContestId === contest._id ? (
-                      <input
-                        type="text"
-                        value={editingContestValue}
-                        onChange={(event) =>
-                          setEditingContestValue(event.target.value)
-                        }
-                        style={{ width: "100%" }}
-                      />
-                    ) : (
-                      <code style={{ fontSize: "14px", background: "var(--bg-secondary)", padding: "4px 8px", borderRadius: "4px" }}>
-                        {contest.contestId}
-                      </code>
-                    )}
-                  </td>
-                  <td>
-                    {editingContestId === contest._id ? (
-                      <input
-                        type="text"
-                        value={editingContestTitle}
-                        onChange={(event) =>
-                          setEditingContestTitle(event.target.value)
-                        }
-                        style={{ width: "100%" }}
-                      />
-                    ) : (
-                      <strong>{contest.title || "Untitled"}</strong>
-                    )}
-                  </td>
-                  <td>
-                    <span className={contest.enabled ? "badge" : "badge-secondary"}>
-                      {contest.enabled ? "Active" : "Disabled"}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="actions" style={{ justifyContent: "flex-end" }}>
-                      {editingContestId === contest._id ? (
-                        <>
-                          <button
-                            className="primary"
-                            onClick={() => handleUpdateContest(contest._id)}
-                          >
-                            Save
-                          </button>
-                          <button
-                            className="secondary"
-                            onClick={cancelContestEdit}
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="secondary"
-                            onClick={() => startContestEdit(contest)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className={contest.enabled ? "secondary" : "primary"}
-                            onClick={() => handleToggleContest(contest)}
-                          >
-                            {contest.enabled ? "Disable" : "Enable"}
-                          </button>
-                          <button
-                            className="danger"
-                            onClick={() => handleDeleteContest(contest._id)}
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
       )}
 
+      {/* ════════════════════════════════════════════════════════════════════
+          REQUESTS TAB
+          ════════════════════════════════════════════════════════════════════ */}
       {activeTab === "requests" && (
         <div className="card">
-          <h2 style={{ marginBottom: "8px" }}>Pending Requests</h2>
-          <p className="card-subtitle">
-            Approve or reject requests for handles, teams, and reactivations
-          </p>
+          <div className="card-header">
+            <div>
+              <h2>Pending Requests ({requests.length})</h2>
+              <p className="card-subtitle">User requests for handles, team registrations &amp; reactivations</p>
+            </div>
+            <button className="secondary sm" onClick={loadRequests}>↻ Refresh</button>
+          </div>
 
-          {requestsLoading && (
-            <div className="empty-state">
-              <div className="loading-spinner"></div>
-              <p>Loading requests...</p>
-            </div>
-          )}
-          {!requestsLoading && requestsError && (
-            <div className="notice error" style={{ marginBottom: 16 }}>
-              {requestsError}
-            </div>
-          )}
+          {requestsLoading && <div className="empty-state"><div className="loading-spinner" /><p>Loading requests...</p></div>}
+          {!requestsLoading && requestsError && <div className="notice error">{requestsError}</div>}
           {!requestsLoading && !requestsError && requests.length === 0 && (
-            <div className="empty-state">
-              <p>No pending requests.</p>
-            </div>
+            <div className="empty-state"><p>🎉 No pending requests right now.</p></div>
           )}
 
           {!requestsLoading && !requestsError && requests.length > 0 && (
             <table className="table">
               <thead>
                 <tr>
-                  <th style={{ width: 110 }}>Type</th>
+                  <th style={{ width: 120 }}>Type</th>
                   <th>Details</th>
                   <th style={{ width: 50, textAlign: "center" }}>Info</th>
-                  <th style={{ width: 200, textAlign: "right" }}>Actions</th>
+                  <th style={{ width: 180, textAlign: "right" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {requests.map((request) => (
-                  <tr key={request._id}>
+                {requests.map((reqItem) => (
+                  <tr key={reqItem._id}>
                     <td>
                       <span style={{
                         display: "inline-block",
@@ -1265,64 +808,61 @@ const AdminDashboard = () => {
                         fontSize: 11,
                         fontWeight: 700,
                         textTransform: "capitalize",
-                        letterSpacing: "0.4px",
-                        background: request.type === "reactivation" ? "var(--info-light)" : request.type === "handle" ? "var(--success-light)" : "var(--warning-light)",
-                        color: request.type === "reactivation" ? "var(--info)" : request.type === "handle" ? "var(--success)" : "var(--warning)",
-                        border: `1px solid ${request.type === "reactivation" ? "var(--info-border)" : request.type === "handle" ? "var(--success-border)" : "var(--warning-border)"}`,
+                        background: reqItem.type === "reactivation" ? "var(--info-light)" : reqItem.type === "handle" ? "var(--success-light)" : "var(--warning-light)",
+                        color: reqItem.type === "reactivation" ? "var(--info)" : reqItem.type === "handle" ? "var(--success)" : "var(--warning)",
+                        border: `1px solid ${reqItem.type === "reactivation" ? "var(--info-border)" : reqItem.type === "handle" ? "var(--success-border)" : "var(--warning-border)"}`,
                       }}>
-                        {request.type}
+                        {reqItem.type}
                       </span>
                     </td>
                     <td>
-                      {request.type === "handle" && (
+                      {reqItem.type === "handle" && (
                         <div>
-                          <span className="handle-name" style={{ textDecoration: "none", cursor: "default" }}>{request.handle}</span>
+                          <span className="handle-name" style={{ textDecoration: "none", cursor: "default" }}>{reqItem.handle}</span>
                           <div className="handle-sub">
-                            {request.name && <span>{request.name}</span>}
-                            {request.name && request.batch && " · "}
-                            {request.batch && <span className="text-mono" style={{ fontSize: 11 }}>{normalizeBatch(request.batch) || request.batch}</span>}
+                            {reqItem.name && <span>{reqItem.name}</span>}
+                            {reqItem.name && reqItem.batch && " · "}
+                            {reqItem.batch && <span className="text-mono">{normalizeBatch(reqItem.batch) || reqItem.batch}</span>}
                           </div>
                         </div>
                       )}
-                      {request.type === "reactivation" && (
+                      {reqItem.type === "reactivation" && (
                         <div>
-                          <span className="handle-name" style={{ textDecoration: "none", cursor: "default" }}>{request.handle}</span>
+                          <span className="handle-name" style={{ textDecoration: "none", cursor: "default" }}>{reqItem.handle}</span>
                           <div className="handle-sub">
-                            {request.name && <span>{request.name}</span>}
-                            {request.name && request.batch && " · "}
-                            {request.batch && <span className="text-mono" style={{ fontSize: 11 }}>{normalizeBatch(request.batch) || request.batch}</span>}
+                            {reqItem.name && <span>{reqItem.name}</span>}
+                            {reqItem.name && reqItem.batch && " · "}
+                            {reqItem.batch && <span className="text-mono">{normalizeBatch(reqItem.batch) || reqItem.batch}</span>}
                           </div>
                         </div>
                       )}
-                      {request.type === "team" && (
+                      {reqItem.type === "team" && (
                         <div>
-                          <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{request.teamName}</span>
-                          <div className="handle-sub">{request.teamHandles}</div>
+                          <strong style={{ color: "var(--text-primary)" }}>{reqItem.teamName}</strong>
+                          <div className="handle-sub">{reqItem.teamHandles}</div>
                         </div>
                       )}
                     </td>
                     <td style={{ textAlign: "center" }}>
-                      <button className="icon-btn" onClick={() => setRequestDetailModal(request)} title="View details">👁</button>
+                      <button className="icon-btn" onClick={() => setRequestDetailModal(reqItem)} title="View details">👁</button>
                     </td>
                     <td>
-                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
                         <button
                           className="success sm"
-                          onClick={() => handleApproveRequest(request._id)}
-                          disabled={approvingRequestId === request._id || rejectingRequestId === request._id}
+                          onClick={() => handleApproveRequest(reqItem._id)}
+                          disabled={approvingRequestId === reqItem._id || rejectingRequestId === reqItem._id}
                         >
-                          {approvingRequestId === request._id ? "Approving…" : "Approve"}
+                          {approvingRequestId === reqItem._id ? "Approving…" : "Approve"}
                         </button>
                         <button
                           className="danger sm"
-                          onClick={() => handleRejectRequest(request._id)}
-                          disabled={approvingRequestId === request._id || rejectingRequestId === request._id}
+                          onClick={() => handleRejectRequest(reqItem._id)}
+                          disabled={approvingRequestId === reqItem._id || rejectingRequestId === reqItem._id}
                         >
-                          {rejectingRequestId === request._id ? "Rejecting…" : "Reject"}
+                          {rejectingRequestId === reqItem._id ? "Rejecting…" : "Reject"}
                         </button>
-                        {requestSuccessId === request._id && (
-                          <span style={{ color: "var(--success)", fontWeight: 600, fontSize: 13 }}>✓ Done</span>
-                        )}
+                        {requestSuccessId === reqItem._id && <span style={{ color: "var(--success)", fontWeight: 600, fontSize: 12 }}>✓ Done</span>}
                       </div>
                     </td>
                   </tr>
@@ -1330,10 +870,170 @@ const AdminDashboard = () => {
               </tbody>
             </table>
           )}
-
         </div>
       )}
-      {/* ── Request Detail Modal ── */}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: ADD PARTICIPANT HANDLE
+          ════════════════════════════════════════════════════════════════════ */}
+      {addHandleModalOpen && (
+        <div className="modal-overlay" onClick={() => setAddHandleModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Add Participant Handle</h2>
+              <button className="modal-close" onClick={() => setAddHandleModalOpen(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              {addHandleError && <div className="notice error" style={{ marginBottom: 12 }}>{addHandleError}</div>}
+              <div style={{ display: "grid", gap: 12 }}>
+                <div className="field">
+                  <label>Codeforces Handle *</label>
+                  <input type="text" value={newHandle} onChange={(e) => setNewHandle(e.target.value)} placeholder="e.g. tourist" />
+                </div>
+                <div className="field">
+                  <label>Full Name</label>
+                  <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name" />
+                </div>
+                <div className="field">
+                  <label>Roll Number</label>
+                  <input type="text" value={newRoll} onChange={(e) => setNewRoll(e.target.value)} placeholder="Roll" />
+                </div>
+                <div className="field">
+                  <label>Batch</label>
+                  <input type="text" value={newBatch} onChange={(e) => setNewBatch(e.target.value)} placeholder="e.g. 2K22" />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setAddHandleModalOpen(false)}>Cancel</button>
+              <button className="primary" onClick={handleCreateHandle} disabled={isAddingHandle}>
+                {isAddingHandle ? "Adding…" : "Add Handle"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: ADD TEAM (3 MEMBERS FORM)
+          ════════════════════════════════════════════════════════════════════ */}
+      {addTeamModalOpen && (
+        <div className="modal-overlay" onClick={() => setAddTeamModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Add Team (3 Members)</h2>
+              <button className="modal-close" onClick={() => setAddTeamModalOpen(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              {addTeamError && <div className="notice error" style={{ marginBottom: 12 }}>{addTeamError}</div>}
+              <div className="field" style={{ marginBottom: 16 }}>
+                <label>Team Name *</label>
+                <input type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="Team Name" />
+              </div>
+
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="member-section">
+                  <div className="member-section-label">Member {i + 1}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div className="field">
+                      <label>CF Handle *</label>
+                      <input type="text" value={teamMembers[i].handle} onChange={(e) => updateTeamMember(i, "handle", e.target.value)} placeholder="Handle" />
+                    </div>
+                    <div className="field">
+                      <label>Full Name *</label>
+                      <input type="text" value={teamMembers[i].name} onChange={(e) => updateTeamMember(i, "name", e.target.value)} placeholder="Name" />
+                    </div>
+                    <div className="field">
+                      <label>Roll Number *</label>
+                      <input type="text" value={teamMembers[i].roll} onChange={(e) => updateTeamMember(i, "roll", e.target.value)} placeholder="Roll" />
+                    </div>
+                    <div className="field">
+                      <label>Batch *</label>
+                      <input type="text" value={teamMembers[i].batch} onChange={(e) => updateTeamMember(i, "batch", e.target.value)} placeholder="e.g. 2K22" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setAddTeamModalOpen(false)}>Cancel</button>
+              <button className="primary" onClick={handleCreateTeam} disabled={isAddingTeam}>
+                {isAddingTeam ? "Saving…" : "Save Team"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: ADD CONTEST
+          ════════════════════════════════════════════════════════════════════ */}
+      {addContestModalOpen && (
+        <div className="modal-overlay" onClick={() => setAddContestModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Add VJudge Contest</h2>
+              <button className="modal-close" onClick={() => setAddContestModalOpen(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: "grid", gap: 12 }}>
+                <div className="field">
+                  <label>Contest ID *</label>
+                  <input type="text" value={contestIdInput} onChange={(e) => setContestIdInput(e.target.value)} placeholder="e.g. 123456" />
+                </div>
+                <div className="field">
+                  <label>Contest Title (Optional)</label>
+                  <input type="text" value={contestTitleInput} onChange={(e) => setContestTitleInput(e.target.value)} placeholder="Title" />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setAddContestModalOpen(false)}>Cancel</button>
+              <button className="primary" onClick={handleCreateContest} disabled={isAddingContest}>
+                {isAddingContest ? "Adding…" : "Add Contest"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: HANDLE DETAIL (WITH PRACTICE & CF MAX RANKS)
+          ════════════════════════════════════════════════════════════════════ */}
+      {handleDetailModal && (
+        <div className="modal-overlay" onClick={() => setHandleDetailModal(null)}>
+          <div className="modal-content" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Participant Details</h2>
+              <button className="modal-close" onClick={() => setHandleDetailModal(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              {[
+                ["Handle",                <a href={`https://codeforces.com/profile/${handleDetailModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{handleDetailModal.handle}</a>],
+                ["Name",                  handleDetailModal.name  || "Not provided"],
+                ["Roll",                  handleDetailModal.roll  || "Not provided"],
+                ["Batch",                 normalizeBatch(handleDetailModal.batch) || handleDetailModal.batch || "Not provided"],
+                ["CF Max Rating",         <span className="stat-badge rating">{handleDetailModal.maxRating || "—"}</span>],
+                ["Practice Rating",       <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>{handleDetailModal.standingRating || 1000}</span>],
+                ["Global Rank (Practice)",<span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--primary)" }}>#{practiceRankMap.get(String(handleDetailModal._id || handleDetailModal.id)) ?? "?"}</span>],
+                ["Global Rank (CF Max)",  <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--warning)" }}>#{cfMaxRankMap.get(String(handleDetailModal._id || handleDetailModal.id)) ?? "?"}</span>],
+              ].map(([label, value]) => (
+                <div key={label} className="detail-row">
+                  <span className="detail-label">{label}</span>
+                  <span className="detail-value">{value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setHandleDetailModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: REQUEST DETAIL
+          ════════════════════════════════════════════════════════════════════ */}
       {requestDetailModal && (
         <div className="modal-overlay" onClick={() => setRequestDetailModal(null)}>
           <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
@@ -1385,186 +1085,83 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* Modal for viewing handle details */}
-      {modalOpen && modalData && (
-        <div className="modal-overlay" onClick={closeModal}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Participant Details</h2>
-              <button className="modal-close" onClick={closeModal}>×</button>
-            </div>
-            <div className="modal-body">
-              <div className="detail-row">
-                <span className="detail-label">Handle:</span>
-                <span className="detail-value">
-                  <a 
-                    href={`https://codeforces.com/profile/${modalData.handle}`} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    style={{ color: "var(--primary)", textDecoration: "none", fontWeight: 600 }}
-                  >
-                    {modalData.handle}
-                  </a>
-                </span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Name:</span>
-                <span className="detail-value">{modalData.name || "Not provided"}</span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Roll Number:</span>
-                <span className="detail-value">{modalData.roll || "Not provided"}</span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Batch:</span>
-                <span className="detail-value">{modalData.batch || "Not provided"}</span>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="secondary" onClick={closeModal}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Credentials Modal */}
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: ADMIN CREDENTIALS
+          ════════════════════════════════════════════════════════════════════ */}
       {showCredentialsModal && (
-        <div className="modal-overlay" onClick={closeCredentialsModal}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setShowCredentialsModal(false)}>
+          <div className="modal-content" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Change Credentials</h2>
-              <button className="modal-close" onClick={closeCredentialsModal}>×</button>
+              <h2>Account Credentials</h2>
+              <button className="modal-close" onClick={() => setShowCredentialsModal(false)}>×</button>
             </div>
             <div className="modal-body">
-              <div className="tabs" style={{ marginBottom: 16 }}>
-                <button
-                  className={`tab ${credentialTab === "username" ? "active" : ""}`}
-                  onClick={() => setCredentialTab("username")}
-                >
-                  Change Username
-                </button>
-                <button
-                  className={`tab ${credentialTab === "password" ? "active" : ""}`}
-                  onClick={() => setCredentialTab("password")}
-                >
-                  Change Password
-                </button>
+              <div className="tabs" style={{ marginBottom: 14 }}>
+                <button className={`tab ${credentialTab === "username" ? "active" : ""}`} onClick={() => setCredentialTab("username")}>Username</button>
+                <button className={`tab ${credentialTab === "password" ? "active" : ""}`} onClick={() => setCredentialTab("password")}>Password</button>
               </div>
 
               {credMessage && <div className="notice success" style={{ marginBottom: 12 }}>{credMessage}</div>}
               {credError && <div className="notice error" style={{ marginBottom: 12 }}>{credError}</div>}
 
               {credentialTab === "username" && (
-                <div>
-                  <div className="field" style={{ marginBottom: 12 }}>
-                    <label>Current Password</label>
-                    <input
-                      type="password"
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      placeholder="Enter current password"
-                    />
+                <div style={{ display: "grid", gap: 12 }}>
+                  <div className="field">
+                    <label>Current Password *</label>
+                    <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" />
                   </div>
-                  <div className="field" style={{ marginBottom: 12 }}>
-                    <label>New Username</label>
-                    <input
-                      type="text"
-                      value={newUsername}
-                      onChange={(e) => setNewUsername(e.target.value)}
-                      placeholder="Enter new username"
-                    />
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-                    <button className="btn secondary" onClick={closeCredentialsModal}>
-                      Cancel
-                    </button>
-                    <button className="btn primary" onClick={handleUpdateUsername}>
-                      Update Username
-                    </button>
+                  <div className="field">
+                    <label>New Username *</label>
+                    <input type="text" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="New username" />
                   </div>
                 </div>
               )}
-
               {credentialTab === "password" && (
-                <div>
-                  <div className="field" style={{ marginBottom: 12 }}>
-                    <label>Current Password</label>
-                    <input
-                      type="password"
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      placeholder="Enter current password"
-                    />
+                <div style={{ display: "grid", gap: 12 }}>
+                  <div className="field">
+                    <label>Current Password *</label>
+                    <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" />
                   </div>
-                  <div className="field" style={{ marginBottom: 12 }}>
-                    <label>New Password</label>
-                    <input
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Enter new password"
-                    />
-                  </div>
-                  <div className="field" style={{ marginBottom: 12 }}>
-                    <label>Confirm New Password</label>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Confirm new password"
-                    />
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
-                    <button className="btn secondary" onClick={closeCredentialsModal}>
-                      Cancel
-                    </button>
-                    <button className="btn primary" onClick={handleUpdatePassword}>
-                      Update Password
-                    </button>
+                  <div className="field">
+                    <label>New Password *</label>
+                    <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" />
                   </div>
                 </div>
               )}
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setShowCredentialsModal(false)}>Cancel</button>
+              <button className="primary" onClick={handleUpdateCredentials}>Save Changes</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: UPDATE PASSKEY
+          ════════════════════════════════════════════════════════════════════ */}
       {showPasskeyModal && (
-        <div className="modal-overlay" onClick={closePasskeyModal}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setShowPasskeyModal(false)}>
+          <div className="modal-content" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Change SGIPC Passkey</h2>
-              <button className="modal-close" onClick={closePasskeyModal}>×</button>
+              <h2>Update SGIPC Passkey</h2>
+              <button className="modal-close" onClick={() => setShowPasskeyModal(false)}>×</button>
             </div>
             <div className="modal-body">
-              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+              {passkeyMessage && <div className="notice info" style={{ marginBottom: 12 }}>{passkeyMessage}</div>}
+              <div style={{ display: "grid", gap: 12 }}>
                 <div className="field">
-                  <label>New Passkey</label>
-                  <input
-                    type="password"
-                    value={passkeyValue}
-                    onChange={(e) => setPasskeyValue(e.target.value)}
-                    placeholder="Enter new passkey"
-                    autoComplete="new-password"
-                  />
+                  <label>New Passkey *</label>
+                  <input type="password" value={passkeyValue} onChange={(e) => setPasskeyValue(e.target.value)} placeholder="Enter new passkey" />
                 </div>
                 <div className="field">
-                  <label>Confirm Passkey</label>
-                  <input
-                    type="password"
-                    value={passkeyConfirm}
-                    onChange={(e) => setPasskeyConfirm(e.target.value)}
-                    placeholder="Confirm new passkey"
-                    autoComplete="new-password"
-                  />
+                  <label>Confirm Passkey *</label>
+                  <input type="password" value={passkeyConfirm} onChange={(e) => setPasskeyConfirm(e.target.value)} placeholder="Confirm passkey" />
                 </div>
               </div>
-              {passkeyMessage && (
-                <div className="notice" style={{ marginTop: 12 }}>{passkeyMessage}</div>
-              )}
             </div>
             <div className="modal-footer">
-              <button className="secondary" onClick={closePasskeyModal}>Cancel</button>
+              <button className="secondary" onClick={() => setShowPasskeyModal(false)}>Cancel</button>
               <button className="primary" onClick={handleUpdatePasskey}>Update Passkey</button>
             </div>
           </div>

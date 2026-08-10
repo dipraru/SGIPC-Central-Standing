@@ -10,13 +10,13 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const getRatingLevel = (r) => {
-  if (r < 1200) return { level: "Dead",        cls: "dead"       };
-  if (r < 1400) return { level: "WarmUp",      cls: "warmup"     };
-  if (r < 1800) return { level: "Trying",      cls: "trying"     };
-  if (r < 2000) return { level: "TryingHard",  cls: "tryinghard" };
-  if (r < 2400) return { level: "Pushing",     cls: "pushing"    };
-  if (r < 3000) return { level: "Hardcore",    cls: "hardcore"   };
-  return            { level: "⚡ Aliens",    cls: "aliens"     };
+  if (r < 1200) return { level: "Casual",          cls: "casual"      };
+  if (r < 1400) return { level: "Warming Up",      cls: "warmup"      };
+  if (r < 1800) return { level: "Persistent",      cls: "persistent"  };
+  if (r < 2000) return { level: "Relentless",      cls: "relentless"  };
+  if (r < 2400) return { level: "Unstoppable",      cls: "unstoppable" };
+  if (r < 3000) return { level: "Problem Slayer",  cls: "slayer"      };
+  return            { level: "👑 Practice Legend", cls: "legend"      };
 };
 const rankCls = (n) => n === 1 ? "gold" : n === 2 ? "silver" : n === 3 ? "bronze" : "default";
 
@@ -139,6 +139,18 @@ const Standings = () => {
   const globalRankMap = useMemo(() => {
     const m = new Map();
     standings.forEach((r, i) => m.set(String(r.id), i + 1));
+    return m;
+  }, [standings]);
+
+  const cfMaxRankMap = useMemo(() => {
+    const m = new Map();
+    const sortedByMax = [...standings].sort((a, b) => {
+      if ((b.maxRating || 0) !== (a.maxRating || 0)) {
+        return (b.maxRating || 0) - (a.maxRating || 0);
+      }
+      return (a.roll || "").localeCompare(b.roll || "", undefined, { numeric: true, sensitivity: "base" });
+    });
+    sortedByMax.forEach((r, i) => m.set(String(r.id), i + 1));
     return m;
   }, [standings]);
 
@@ -430,13 +442,13 @@ const Standings = () => {
               <div className="rating-legend">
                 <strong>Tiers:</strong>
                 {[
-                  { cls: "dead",       label: "<1200 Dead"       },
-                  { cls: "warmup",     label: "<1400 WarmUp"     },
-                  { cls: "trying",     label: "<1800 Trying"     },
-                  { cls: "tryinghard", label: "<2000 TryingHard" },
-                  { cls: "pushing",    label: "<2400 Pushing"    },
-                  { cls: "hardcore",   label: "<3000 Hardcore"   },
-                  { cls: "aliens",     label: "≥3000 Aliens"     },
+                  { cls: "casual",      label: "<1200 Casual"          },
+                  { cls: "warmup",      label: "<1400 Warming Up"      },
+                  { cls: "persistent",  label: "<1800 Persistent"      },
+                  { cls: "relentless",  label: "<2000 Relentless"      },
+                  { cls: "unstoppable", label: "<2400 Unstoppable"      },
+                  { cls: "slayer",      label: "<3000 Problem Slayer"  },
+                  { cls: "legend",      label: "≥3000 Practice Legend" },
                 ].map(({ cls, label }) => (
                   <div key={cls} className="legend-item">
                     <div className={`legend-color ${cls}`} />
@@ -767,13 +779,14 @@ const Standings = () => {
             </div>
             <div className="modal-body">
               {[
-                ["Handle",         <a href={`https://codeforces.com/profile/${infoModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{infoModal.handle}</a>],
-                ["Name",           infoModal.name  || "Not provided"],
-                ["Roll",           infoModal.roll  || "Not provided"],
-                ["Batch",          normalizeBatch(infoModal.batch) || infoModal.batch || "Not provided"],
-                ["CF Max Rating",  <span className="stat-badge rating">{infoModal.maxRating || "—"}</span>],
-                ["Practice Rating",<span style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>{infoModal.standingRating}</span>],
-                ["Global Rank",    <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>#{globalRankMap.get(String(infoModal.id)) ?? "?"}</span>],
+                ["Handle",                <a href={`https://codeforces.com/profile/${infoModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{infoModal.handle}</a>],
+                ["Name",                  infoModal.name  || "Not provided"],
+                ["Roll",                  infoModal.roll  || "Not provided"],
+                ["Batch",                 normalizeBatch(infoModal.batch) || infoModal.batch || "Not provided"],
+                ["CF Max Rating",         <span className="stat-badge rating">{infoModal.maxRating || "—"}</span>],
+                ["Practice Rating",       <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>{infoModal.standingRating}</span>],
+                ["Global Rank (Practice)",<span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--primary)" }}>#{globalRankMap.get(String(infoModal.id)) ?? "?"}</span>],
+                ["Global Rank (CF Max)",  <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--warning)" }}>#{cfMaxRankMap.get(String(infoModal.id)) ?? "?"}</span>],
               ].map(([label, value]) => (
                 <div key={label} className="detail-row">
                   <span className="detail-label">{label}</span>
@@ -800,13 +813,14 @@ const Standings = () => {
             </div>
             <div className="modal-body">
               {[
-                ["Handle",        <a href={`https://codeforces.com/profile/${inactiveModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{inactiveModal.handle}</a>],
-                ["Name",          inactiveModal.name  || "Not provided"],
-                ["Batch",         normalizeBatch(inactiveModal.batch) || inactiveModal.batch || "Not provided"],
-                ["CF Max Rating", <span className="stat-badge rating">{inactiveModal.maxRating || "—"}</span>],
-                ["Total Solved",  <span className="stat-badge solved">{inactiveModal.totalSolved}</span>],
-                ["Inactive Since",inactiveModal.inactiveSince ? new Date(inactiveModal.inactiveSince).toLocaleDateString() : "Unknown"],
-                ["Status",        <span className="inactive-badge">💤 Inactive</span>],
+                ["Handle",               <a href={`https://codeforces.com/profile/${inactiveModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{inactiveModal.handle}</a>],
+                ["Name",                 inactiveModal.name  || "Not provided"],
+                ["Batch",                normalizeBatch(inactiveModal.batch) || inactiveModal.batch || "Not provided"],
+                ["CF Max Rating",        <span className="stat-badge rating">{inactiveModal.maxRating || "—"}</span>],
+                ["Global Rank (CF Max)", <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--warning)" }}>#{cfMaxRankMap.get(String(inactiveModal.id)) ?? "?"}</span>],
+                ["Total Solved",         <span className="stat-badge solved">{inactiveModal.totalSolved}</span>],
+                ["Inactive Since",       inactiveModal.inactiveSince ? new Date(inactiveModal.inactiveSince).toLocaleDateString() : "Unknown"],
+                ["Status",               <span className="inactive-badge">💤 Inactive</span>],
               ].map(([label, value]) => (
                 <div key={label} className="detail-row">
                   <span className="detail-label">{label}</span>

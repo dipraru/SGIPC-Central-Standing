@@ -108,6 +108,7 @@ const AdminDashboard = () => {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [credMessage, setCredMessage] = useState("");
   const [credError, setCredError] = useState("");
 
@@ -409,7 +410,11 @@ const AdminDashboard = () => {
     setCredMessage(""); setCredError("");
     if (!currentPassword) return setCredError("Current password is required.");
     if (credentialTab === "username" && !newUsername.trim()) return setCredError("New username is required.");
-    if (credentialTab === "password" && !newPassword) return setCredError("New password is required.");
+    if (credentialTab === "password") {
+      if (!newPassword) return setCredError("New password is required.");
+      if (!confirmPassword) return setCredError("Confirm password is required.");
+      if (newPassword !== confirmPassword) return setCredError("New password and confirm password do not match.");
+    }
     try {
       await updateAdminCredentials({
         currentPassword,
@@ -417,7 +422,7 @@ const AdminDashboard = () => {
         newPassword: credentialTab === "password" ? newPassword : undefined,
       });
       setCredMessage("Credentials updated successfully!");
-      setCurrentPassword(""); setNewUsername(""); setNewPassword("");
+      setCurrentPassword(""); setNewUsername(""); setNewPassword(""); setConfirmPassword("");
       setTimeout(() => setShowCredentialsModal(false), 1200);
     } catch (err) { setCredError(err?.response?.data?.message || "Failed to update credentials."); }
   };
@@ -1181,6 +1186,10 @@ const AdminDashboard = () => {
                   <div className="field">
                     <label>New Password *</label>
                     <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" />
+                  </div>
+                  <div className="field">
+                    <label>Confirm New Password *</label>
+                    <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm new password" />
                   </div>
                 </div>
               )}

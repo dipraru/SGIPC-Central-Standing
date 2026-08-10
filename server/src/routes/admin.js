@@ -204,7 +204,7 @@ router.post("/requests/:id/approve", authRequired, async (req, res) => {
       batch: request.batch || "",
     });
     try {
-      await refreshHandleData(request.handle, { fullHistory: true });
+      await refreshHandleData(request.handle, { fullHistory: true, forceActive: true });
     } catch (error) {
       await Promise.all([
         Handle.deleteOne({ handle: request.handle }),
@@ -241,17 +241,16 @@ router.post("/requests/:id/approve", authRequired, async (req, res) => {
     if (!handleDoc) {
       return res.status(404).json({ message: "Handle not found" });
     }
-    // Re-activate the handle so it gets included in the next nightly refresh
+    // Re-activate the handle so it gets included in standings
     await Handle.updateOne(
       { handle: request.handle },
       { isInactive: false, inactiveSince: null }
     );
     // Immediately backfill data so the handle shows up in standings right away
     try {
-      await refreshHandleData(request.handle, { fullHistory: true });
+      await refreshHandleData(request.handle, { fullHistory: true, forceActive: true });
     } catch (error) {
       console.error(`Reactivation backfill failed for ${request.handle}:`, error.message);
-      // Don't roll back — the handle is reactivated, it will be refreshed at midnight
     }
     request.status = "approved";
     request.approvedAt = new Date();

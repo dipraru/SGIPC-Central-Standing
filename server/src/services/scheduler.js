@@ -29,7 +29,7 @@ const hasRecentActivity = (solvedProblems) => {
 
 // Function to refresh data for a single handle
 export async function refreshHandleData(handle, options = {}) {
-  const { fullHistory = false } = options;
+  const { fullHistory = false, forceActive = false } = options;
   try {
     console.log(`Refreshing data for handle: ${handle}`);
     const nowSeconds = Math.floor(Date.now() / 1000);
@@ -69,7 +69,7 @@ export async function refreshHandleData(handle, options = {}) {
     }
 
     // ── Inactive detection ────────────────────────────────────────────────────
-    const active = hasRecentActivity(uniqueSolved);
+    const active = forceActive || hasRecentActivity(uniqueSolved);
 
     if (!active) {
       // No activity in 90 days — mark as inactive
@@ -123,14 +123,14 @@ export async function refreshHandleData(handle, options = {}) {
       return; // Stop here — no rating/daily data to refresh for inactive handle
     }
 
-    // ── Active handle — re-activate if previously inactive ────────────────────
+    // ── Active handle — re-activate if previously inactive or forceActive ──────
     const handleDoc = await Handle.findOne({ handle });
-    if (handleDoc?.isInactive) {
+    if (handleDoc?.isInactive || forceActive) {
       await Handle.updateOne(
         { handle },
         { isInactive: false, inactiveSince: null }
       );
-      console.log(`Handle ${handle} re-activated (recent activity detected).`);
+      console.log(`Handle ${handle} re-activated.`);
     }
 
     // ── Continue with normal data refresh ─────────────────────────────────────

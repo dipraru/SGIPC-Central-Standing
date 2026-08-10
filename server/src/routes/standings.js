@@ -113,9 +113,18 @@ router.get("/standings", async (req, res) => {
       })
     );
 
-    const sorted = results.sort(
-      (a, b) => b.standingRating - a.standingRating
-    );
+    const sorted = results.sort((a, b) => {
+      if (b.standingRating !== a.standingRating) {
+        return b.standingRating - a.standingRating;
+      }
+      if (b.maxRating !== a.maxRating) {
+        return b.maxRating - a.maxRating;
+      }
+      return (a.roll || "").localeCompare(b.roll || "", undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
     return res.json(sorted);
   } catch (error) {
     return res.status(502).json({

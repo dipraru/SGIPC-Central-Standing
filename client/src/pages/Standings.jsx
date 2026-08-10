@@ -68,7 +68,7 @@ const Standings = () => {
   const [showInactive, setShowInactive] = useState(false);   // slide-in panel inside individual
 
   const switchTab = (tab) => { setActiveTab(tab); saveTab(tab); setShowInactive(false); };
-  const openInactive = () => { setShowInactive(true); saveTab("inactive_panel"); };
+  const openInactive = () => { setShowInactive(true); saveTab("inactive_panel"); fetchInactive(); };
   const closeInactive = () => { setShowInactive(false); saveTab("individual"); };
 
   // Restore inactive panel state on mount
@@ -199,17 +199,19 @@ const Standings = () => {
     }
   }, []);
 
-  // ── Initial load ───────────────────────────────────────────────────────────
+  // ── Initial load (Stale-While-Revalidate pattern) ──────────────────────────
   useEffect(() => {
     let alive = true;
     const load = async () => {
       const c = readCache("indStandings");
-      if (c) { setStandings(c.data); setLastUpdated(new Date(c.timestamp)); setLoading(false); }
-      if (!c || c.isStale) {
-        const ok = await fetchStandings();
-        if (alive && !ok && !c) setError("Unable to load standings.");
-        if (alive) setLoading(false);
+      if (c) {
+        setStandings(c.data);
+        setLastUpdated(new Date(c.timestamp));
+        setLoading(false);
       }
+      const ok = await fetchStandings();
+      if (alive && !ok && !c) setError("Unable to load standings.");
+      if (alive) setLoading(false);
     };
     load();
     return () => { alive = false; };
@@ -219,21 +221,23 @@ const Standings = () => {
     let alive = true;
     const load = async () => {
       const c = readCache("teamStandings");
-      if (c) { setTeamStandings(c.data?.standings || []); setEloMode(c.data?.eloMode || "normal"); setTeamLoading(false); }
-      if (!c || c.isStale) {
-        const ok = await fetchTeam();
-        if (alive && !ok && !c) setTeamError("Unable to load team standings.");
-        if (alive) setTeamLoading(false);
+      if (c) {
+        setTeamStandings(c.data?.standings || []);
+        setEloMode(c.data?.eloMode || "normal");
+        setTeamLoading(false);
       }
+      const ok = await fetchTeam();
+      if (alive && !ok && !c) setTeamError("Unable to load team standings.");
+      if (alive) setTeamLoading(false);
     };
     load();
     return () => { alive = false; };
   }, [fetchTeam]);
 
-  // Load inactive when the panel is opened for the first time
+  // Load inactive when the panel is opened
   useEffect(() => {
-    if (showInactive && inactiveList.length === 0 && !inactiveLoading) fetchInactive();
-  }, [showInactive, inactiveList.length, inactiveLoading, fetchInactive]);
+    if (showInactive) fetchInactive();
+  }, [showInactive, fetchInactive]);
 
   // Refetch on focus
   useEffect(() => {

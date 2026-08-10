@@ -76,6 +76,7 @@ const AdminDashboard = () => {
   const [selectedBatches, setSelectedBatches] = useState([]);
   const [batchFilterOpen, setBatchFilterOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [requestDetailModal, setRequestDetailModal] = useState(null); // request object | null
 
   const handleAuthError = (err) => {
     if (err?.response?.status === 401) {
@@ -586,7 +587,7 @@ const AdminDashboard = () => {
   return (
     <div className="container">
       <div className="hero">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
+        <div className="hero-inner">
           <div>
             <span className="badge">Admin Dashboard</span>
             <h1>Manage SGIPC Platform</h1>
@@ -740,22 +741,11 @@ const AdminDashboard = () => {
                       {selectedBatches.map((batch) => (
                         <span
                           key={batch}
-                          style={{
-                            padding: "4px 12px",
-                            backgroundColor: "var(--primary)",
-                            color: "white",
-                            borderRadius: 16,
-                            fontSize: 13,
-                            fontWeight: 600,
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 6,
-                          }}
+                          className="batch-tag"
                           onClick={() => toggleBatch(batch)}
                         >
                           {batch}
-                          <span style={{ fontSize: 16, lineHeight: 1 }}>×</span>
+                          <span style={{ fontSize: 14 }}>×</span>
                         </span>
                       ))}
                       <button
@@ -769,101 +759,34 @@ const AdminDashboard = () => {
                   )}
                 </div>
 
-                {/* Search Section */}
-                <div style={{ width: "100%", maxWidth: 400, minWidth: 280 }}>
-                  <div style={{ position: "relative" }}>
+                <div style={{ width: "100%", maxWidth: 400, minWidth: 260 }}>
+                  <div className="search-wrapper">
+                    <span className="search-icon">🔍</span>
                     <input
                       type="text"
                       placeholder="Search by Name, Roll, or Handle..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: "10px 16px 10px 40px",
-                        fontSize: 14,
-                        border: "2px solid var(--gray-300)",
-                        borderRadius: 8,
-                        outline: "none",
-                        transition: "border-color 0.2s",
-                      }}
-                      onFocus={(e) => (e.target.style.borderColor = "var(--primary)")}
-                      onBlur={(e) => (e.target.style.borderColor = "var(--gray-300)")}
                     />
-                    <span
-                      style={{
-                        position: "absolute",
-                        left: 12,
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        fontSize: 18,
-                        color: "var(--gray-500)",
-                      }}
-                    >
-                      🔍
-                    </span>
                     {searchQuery && (
-                      <button
-                        onClick={() => setSearchQuery("")}
-                        style={{
-                          position: "absolute",
-                          right: 8,
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          background: "none",
-                          border: "none",
-                          fontSize: 20,
-                          color: "var(--gray-500)",
-                          cursor: "pointer",
-                          padding: "4px 8px",
-                          lineHeight: 1,
-                        }}
-                        title="Clear search"
-                      >
-                        ×
-                      </button>
+                      <button className="search-clear" onClick={() => setSearchQuery("")}>×</button>
                     )}
                   </div>
                   {searchQuery && (
-                    <p style={{ marginTop: 4, fontSize: 13, color: "var(--gray-600)", textAlign: "right" }}>
-                      Found {getSearchFilteredHandles().length} result{getSearchFilteredHandles().length !== 1 ? 's' : ''}
+                    <p className="text-xs text-muted" style={{ marginTop: 4, textAlign: "right" }}>
+                      {getSearchFilteredHandles().length} result{getSearchFilteredHandles().length !== 1 ? 's' : ''}
                     </p>
                   )}
                 </div>
               </div>
 
-              {/* Batch Filter Dropdown */}
               {batchFilterOpen && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    padding: 16,
-                    border: "1px solid var(--gray-200)",
-                    borderRadius: 8,
-                    backgroundColor: "var(--gray-50)",
-                  }}
-                >
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                <div className="batch-dropdown" style={{ marginTop: 12 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {getAvailableBatches().map((batch) => (
                       <label
                         key={batch}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          cursor: "pointer",
-                          padding: "6px 12px",
-                          backgroundColor: selectedBatches.includes(batch)
-                            ? "var(--primary-light)"
-                            : "white",
-                          border: `2px solid ${
-                            selectedBatches.includes(batch) ? "var(--primary)" : "var(--gray-300)"
-                          }`,
-                          borderRadius: 6,
-                          transition: "all 0.2s",
-                          fontSize: 14,
-                          fontWeight: 500,
-                          userSelect: "none",
-                        }}
+                        className={`batch-checkbox-label ${selectedBatches.includes(batch) ? "selected" : ""}`}
                       >
                         <input
                           type="checkbox"
@@ -1300,8 +1223,8 @@ const AdminDashboard = () => {
       {activeTab === "requests" && (
         <div className="card">
           <h2 style={{ marginBottom: "8px" }}>Pending Requests</h2>
-          <p style={{ color: "var(--text-secondary)", marginBottom: "16px" }}>
-            Approve or reject requests for handles and teams
+          <p className="card-subtitle">
+            Approve or reject requests for handles, teams, and reactivations
           </p>
 
           {requestsLoading && (
@@ -1325,50 +1248,81 @@ const AdminDashboard = () => {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Type</th>
+                  <th style={{ width: 110 }}>Type</th>
                   <th>Details</th>
-                  <th style={{ textAlign: "right" }}>Actions</th>
+                  <th style={{ width: 50, textAlign: "center" }}>Info</th>
+                  <th style={{ width: 200, textAlign: "right" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {requests.map((request) => (
                   <tr key={request._id}>
-                    <td><strong>{request.type === "handle" ? "Handle" : "Team"}</strong></td>
                     <td>
-                      {request.type === "handle" ? (
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <span><strong>{request.handle}</strong></span>
-                          <span>{request.name} • {request.roll} • {request.batch}</span>
+                      <span style={{
+                        display: "inline-block",
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textTransform: "capitalize",
+                        letterSpacing: "0.4px",
+                        background: request.type === "reactivation" ? "var(--info-light)" : request.type === "handle" ? "var(--success-light)" : "var(--warning-light)",
+                        color: request.type === "reactivation" ? "var(--info)" : request.type === "handle" ? "var(--success)" : "var(--warning)",
+                        border: `1px solid ${request.type === "reactivation" ? "var(--info-border)" : request.type === "handle" ? "var(--success-border)" : "var(--warning-border)"}`,
+                      }}>
+                        {request.type}
+                      </span>
+                    </td>
+                    <td>
+                      {request.type === "handle" && (
+                        <div>
+                          <span className="handle-name" style={{ textDecoration: "none", cursor: "default" }}>{request.handle}</span>
+                          <div className="handle-sub">
+                            {request.name && <span>{request.name}</span>}
+                            {request.name && request.batch && " · "}
+                            {request.batch && <span className="text-mono" style={{ fontSize: 11 }}>{normalizeBatch(request.batch) || request.batch}</span>}
+                          </div>
                         </div>
-                      ) : (
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <span><strong>{request.teamName}</strong></span>
-                          <span style={{ color: "var(--text-secondary)" }}>{request.teamHandles}</span>
+                      )}
+                      {request.type === "reactivation" && (
+                        <div>
+                          <span className="handle-name" style={{ textDecoration: "none", cursor: "default" }}>{request.handle}</span>
+                          <div className="handle-sub">
+                            {request.name && <span>{request.name}</span>}
+                            {request.name && request.batch && " · "}
+                            {request.batch && <span className="text-mono" style={{ fontSize: 11 }}>{normalizeBatch(request.batch) || request.batch}</span>}
+                          </div>
+                        </div>
+                      )}
+                      {request.type === "team" && (
+                        <div>
+                          <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{request.teamName}</span>
+                          <div className="handle-sub">{request.teamHandles}</div>
                         </div>
                       )}
                     </td>
+                    <td style={{ textAlign: "center" }}>
+                      <button className="icon-btn" onClick={() => setRequestDetailModal(request)} title="View details">👁</button>
+                    </td>
                     <td>
-                      <div className="actions" style={{ justifyContent: "flex-end" }}>
-                          <button
-                            className="primary"
-                            onClick={() => handleApproveRequest(request._id)}
-                            disabled={approvingRequestId === request._id || rejectingRequestId === request._id}
-                          >
-                            {approvingRequestId === request._id ? "Approving..." : "Approve"}
-                          </button>
-                          <button
-                            className="danger"
-                            onClick={() => handleRejectRequest(request._id)}
-                            disabled={approvingRequestId === request._id || rejectingRequestId === request._id}
-                          >
-                            {rejectingRequestId === request._id ? "Rejecting..." : "Reject"}
-                          </button>
-                          {(approvingRequestId === request._id || rejectingRequestId === request._id) && (
-                            <div className="loading-spinner" style={{ width: 16, height: 16, borderWidth: 2, marginLeft: 8 }}></div>
-                          )}
-                          {requestSuccessId === request._id && (
-                            <span style={{ color: "var(--success)", fontWeight: 600, marginLeft: 8 }}>✓ Done</span>
-                          )}
+                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+                        <button
+                          className="success sm"
+                          onClick={() => handleApproveRequest(request._id)}
+                          disabled={approvingRequestId === request._id || rejectingRequestId === request._id}
+                        >
+                          {approvingRequestId === request._id ? "Approving…" : "Approve"}
+                        </button>
+                        <button
+                          className="danger sm"
+                          onClick={() => handleRejectRequest(request._id)}
+                          disabled={approvingRequestId === request._id || rejectingRequestId === request._id}
+                        >
+                          {rejectingRequestId === request._id ? "Rejecting…" : "Reject"}
+                        </button>
+                        {requestSuccessId === request._id && (
+                          <span style={{ color: "var(--success)", fontWeight: 600, fontSize: 13 }}>✓ Done</span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1377,6 +1331,57 @@ const AdminDashboard = () => {
             </table>
           )}
 
+        </div>
+      )}
+      {/* ── Request Detail Modal ── */}
+      {requestDetailModal && (
+        <div className="modal-overlay" onClick={() => setRequestDetailModal(null)}>
+          <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Request Details</h2>
+              <button className="modal-close" onClick={() => setRequestDetailModal(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              {requestDetailModal.type === "handle" && [
+                ["Type", "Individual Handle"],
+                ["Handle", <a href={`https://codeforces.com/profile/${requestDetailModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{requestDetailModal.handle}</a>],
+                ["Name",  requestDetailModal.name  || "Not provided"],
+                ["Roll",  requestDetailModal.roll  || "Not provided"],
+                ["Batch", normalizeBatch(requestDetailModal.batch) || requestDetailModal.batch || "Not provided"],
+              ].map(([label, value]) => (
+                <div key={label} className="detail-row"><span className="detail-label">{label}</span><span className="detail-value">{value}</span></div>
+              ))}
+              {requestDetailModal.type === "reactivation" && [
+                ["Type", "Reactivation Request"],
+                ["Handle", <a href={`https://codeforces.com/profile/${requestDetailModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{requestDetailModal.handle}</a>],
+                ["Name",  requestDetailModal.name  || "Not provided"],
+                ["Batch", normalizeBatch(requestDetailModal.batch) || requestDetailModal.batch || "Not provided"],
+              ].map(([label, value]) => (
+                <div key={label} className="detail-row"><span className="detail-label">{label}</span><span className="detail-value">{value}</span></div>
+              ))}
+              {requestDetailModal.type === "team" && (
+                <>
+                  <div className="detail-row"><span className="detail-label">Type</span><span className="detail-value">Team Request</span></div>
+                  <div className="detail-row"><span className="detail-label">Team Name</span><span className="detail-value" style={{ fontWeight: 700 }}>{requestDetailModal.teamName}</span></div>
+                  <div className="detail-row"><span className="detail-label">VJudge Handles</span><span className="detail-value" style={{ fontFamily: "var(--font-mono)" }}>{requestDetailModal.teamHandles}</span></div>
+                  {requestDetailModal.teamMembers && requestDetailModal.teamMembers.length > 0 && (
+                    <>
+                      <div style={{ marginTop: 14, marginBottom: 8, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-muted)" }}>Team Members</div>
+                      {requestDetailModal.teamMembers.map((m, i) => (
+                        <div key={i} style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "10px 12px", marginBottom: 8 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, fontFamily: "var(--font-mono)", color: "var(--primary)", marginBottom: 4 }}>{m.handle}</div>
+                          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{m.name} · {m.roll} · <span style={{ fontFamily: "var(--font-mono)" }}>{normalizeBatch(m.batch) || m.batch}</span></div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setRequestDetailModal(null)}>Close</button>
+            </div>
+          </div>
         </div>
       )}
 

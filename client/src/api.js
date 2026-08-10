@@ -41,6 +41,16 @@ export const getStandings = async () => {
   return data;
 };
 
+export const getInactiveStandings = async () => {
+  const { data } = await api.get("/standings/inactive");
+  return data;
+};
+
+export const submitReactivationRequest = async (handle) => {
+  const { data } = await api.post("/request/reactivate", { handle });
+  return data;
+};
+
 export const getVjudgeStandings = async () => {
   const { data } = await api.get("/vjudge/standings");
   return data;

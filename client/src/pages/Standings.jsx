@@ -109,6 +109,7 @@ const Standings = () => {
   // ── Modals ─────────────────────────────────────────────────────────────────
   const [activityModal,  setActivityModal]  = useState(null);  // row data | null
   const [infoModal,      setInfoModal]      = useState(null);  // row data | null
+  const [teamInfoModal,  setTeamInfoModal]  = useState(null);  // team row | null
   const [inactiveModal,  setInactiveModal]  = useState(null);  // inactive row | null
   const [requestModal,   setRequestModal]   = useState(false);
   const [requestTab,     setRequestTab]     = useState("handle");
@@ -121,7 +122,9 @@ const Standings = () => {
   const [rPasskey, setRPasskey] = useState("");
 
   // ── Request form: team (3 members) ────────────────────────────────────────
+  const emptyMember = () => ({ name: "", roll: "", batch: "" });
   const [rTeamName, setRTeamName] = useState("");
+  const [rTeamVjudgeHandle, setRTeamVjudgeHandle] = useState("");
   const [rMembers,  setRMembers]  = useState([emptyMember(), emptyMember(), emptyMember()]);
   const [rTeamPasskey, setRTeamPasskey] = useState("");
 
@@ -298,7 +301,7 @@ const Standings = () => {
   // ── Request form helpers ───────────────────────────────────────────────────
   const resetRequestForm = () => {
     setRHandle(""); setRName(""); setRRoll(""); setRBatch(""); setRPasskey("");
-    setRTeamName(""); setRMembers([emptyMember(), emptyMember(), emptyMember()]); setRTeamPasskey("");
+    setRTeamName(""); setRTeamVjudgeHandle(""); setRMembers([emptyMember(), emptyMember(), emptyMember()]); setRTeamPasskey("");
     setRError(""); setRSuccess("");
   };
   const openRequestModal = () => { resetRequestForm(); setRequestTab("handle"); setRequestModal(true); };
@@ -313,11 +316,11 @@ const Standings = () => {
       if (!rHandle.trim() || !rName.trim() || !rRoll.trim() || !rBatch.trim() || !rPasskey.trim())
         return setRError("All fields are required.");
     } else {
-      if (!rTeamName.trim() || !rTeamPasskey.trim()) return setRError("Team name and passkey are required.");
+      if (!rTeamName.trim() || !rTeamVjudgeHandle.trim() || !rTeamPasskey.trim()) return setRError("Team name, VJudge handle, and passkey are required.");
       for (let i = 0; i < 3; i++) {
         const m = rMembers[i];
-        if (!m.handle.trim() || !m.name.trim() || !m.roll.trim() || !m.batch.trim())
-          return setRError(`All fields for Member ${i + 1} are required.`);
+        if (!m.name.trim() || !m.roll.trim() || !m.batch.trim())
+          return setRError(`All fields (Name, Roll, Batch) for Member ${i + 1} are required.`);
       }
     }
     setRLoading(true);
@@ -325,7 +328,7 @@ const Standings = () => {
       if (requestTab === "handle") {
         await submitHandleRequest({ handle: rHandle.trim(), name: rName.trim(), roll: rRoll.trim(), batch: rBatch.trim(), passkey: rPasskey.trim() });
       } else {
-        await submitTeamRequest({ teamName: rTeamName.trim(), members: rMembers, passkey: rTeamPasskey.trim() });
+        await submitTeamRequest({ teamName: rTeamName.trim(), teamVjudgeHandle: rTeamVjudgeHandle.trim(), members: rMembers, passkey: rTeamPasskey.trim() });
       }
       setRSuccess("Request submitted successfully!");
       resetRequestForm();
@@ -679,30 +682,38 @@ const Standings = () => {
               <thead>
                 <tr>
                   <th style={{ width: 50 }}>#</th>
-                  <th>Team</th>
+                  <th>Team Name</th>
+                  <th style={{ width: 100 }}>Contests</th>
                   <th style={{ width: 130 }}>Rating</th>
-                  <th style={{ width: 90 }}>Contests</th>
+                  <th style={{ width: 50, textAlign: "center" }}>Info</th>
                 </tr>
               </thead>
               <tbody>
                 {teamStandings.map((row) => (
                   <tr key={row.id}>
                     <td data-label="#"><div className={`rank-badge ${rankCls(row.rank)}`}>{row.rank}</div></td>
-                    <td data-label="Team">
+                    <td data-label="Team Name">
                       <span style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: 14 }}>{row.name}</span>
-                      {row.aliases && row.aliases.length > 0 && (
-                        <div className="handle-sub">
-                          {row.aliases.join(" · ")}
+                      {((row.members && row.members.length > 0) || (row.aliases && row.aliases.length > 0)) && (
+                        <div className="handle-sub" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                          {row.members && row.members.length > 0
+                            ? row.members.map((m) => m.name).filter(Boolean).join(" · ")
+                            : row.aliases.join(" · ")}
                         </div>
                       )}
+                    </td>
+                    <td data-label="Contests" style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
+                      {row.contests}
                     </td>
                     <td data-label="Rating">
                       <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--primary)", fontSize: 15 }}>
                         {row.ratingDisplay}
                       </span>
                     </td>
-                    <td data-label="Contests" style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
-                      {row.contests}
+                    <td data-label="Info" style={{ textAlign: "center" }}>
+                      <button className="icon-btn" onClick={() => setTeamInfoModal(row)} title="View team details">
+                        👁
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -763,17 +774,18 @@ const Standings = () => {
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   <div className="field">
                     <label>Team Name *</label>
-                    <input type="text" value={rTeamName} onChange={(e) => setRTeamName(e.target.value)} placeholder="Team name" autoComplete="off" />
+                    <input type="text" value={rTeamName} onChange={(e) => setRTeamName(e.target.value)} placeholder="Team name (e.g. KUET_Alpha)" autoComplete="off" />
+                  </div>
+
+                  <div className="field">
+                    <label>VJudge Team Handle *</label>
+                    <input type="text" value={rTeamVjudgeHandle} onChange={(e) => setRTeamVjudgeHandle(e.target.value)} placeholder="Team VJudge handle for rankings" autoComplete="off" />
                   </div>
 
                   {[0, 1, 2].map((i) => (
                     <div key={i} className="member-section">
                       <div className="member-section-label">Member {i + 1}</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                        <div className="field">
-                          <label>CF Handle *</label>
-                          <input type="text" value={rMembers[i].handle} onChange={(e) => updateMember(i, "handle", e.target.value)} placeholder="codeforces handle" autoComplete="off" />
-                        </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                         <div className="field">
                           <label>Full Name *</label>
                           <input type="text" value={rMembers[i].name} onChange={(e) => updateMember(i, "name", e.target.value)} placeholder="Full name" autoComplete="off" />
@@ -836,6 +848,61 @@ const Standings = () => {
             </div>
             <div className="modal-footer">
               <button className="secondary" onClick={() => setInfoModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          TEAM INFO MODAL
+          ════════════════════════════════════════════════════════════════════ */}
+      {teamInfoModal && (
+        <div className="modal-overlay" onClick={() => setTeamInfoModal(null)}>
+          <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Team Details</h2>
+              <button className="modal-close" onClick={() => setTeamInfoModal(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              {[
+                ["Team Name", teamInfoModal.name],
+                ["VJudge Handle", (teamInfoModal.aliases || []).join(", ") || "—"],
+                ["Rating", <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--primary)" }}>{teamInfoModal.ratingDisplay}</span>],
+                ["Contests Participated", teamInfoModal.contests || 0],
+              ].map(([label, value]) => (
+                <div key={label} className="detail-row">
+                  <span className="detail-label">{label}</span>
+                  <span className="detail-value">{value}</span>
+                </div>
+              ))}
+
+              <div style={{ marginTop: 16 }}>
+                <h3 style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", marginBottom: 8 }}>
+                  Team Members
+                </h3>
+                {teamInfoModal.members && teamInfoModal.members.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {teamInfoModal.members.map((m, idx) => (
+                      <div key={idx} style={{ background: "var(--bg-subtle)", padding: "8px 12px", borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{m.name || `Member ${idx + 1}`}</div>
+                          {m.roll && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Roll: {m.roll}</div>}
+                        </div>
+                        {m.batch && (
+                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "var(--card-bg)", border: "1px solid var(--border)" }}>
+                            {normalizeBatch(m.batch) || m.batch}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)" }}>No member details recorded.</p>
+                )}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setTeamInfoModal(null)}>Close</button>
             </div>
           </div>
         </div>

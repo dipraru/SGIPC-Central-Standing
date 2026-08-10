@@ -34,7 +34,7 @@ const saveAdminTab = (tab) => {
 const extractBatchDigits = (b) => { const m = (b || "").match(/(\d{2})$/); return m ? m[1] : null; };
 const normalizeBatch     = (b) => { const d = extractBatchDigits(b); return d ? `2K${d}` : null; };
 
-const emptyMember = () => ({ handle: "", name: "", roll: "", batch: "" });
+const emptyMember = () => ({ name: "", roll: "", batch: "" });
 
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState(getInitialAdminTab);
@@ -70,6 +70,7 @@ const AdminDashboard = () => {
 
   const [addTeamModalOpen, setAddTeamModalOpen] = useState(false);
   const [teamName, setTeamName] = useState("");
+  const [teamVjudgeHandle, setTeamVjudgeHandle] = useState("");
   const [teamMembers, setTeamMembers] = useState([emptyMember(), emptyMember(), emptyMember()]);
   const [isAddingTeam, setIsAddingTeam] = useState(false);
   const [addTeamError, setAddTeamError] = useState("");
@@ -80,6 +81,7 @@ const AdminDashboard = () => {
   const [isAddingContest, setIsAddingContest] = useState(false);
 
   const [handleDetailModal, setHandleDetailModal] = useState(null); // handle object | null
+  const [teamDetailModal, setTeamDetailModal] = useState(null); // team object | null
   const [requestDetailModal, setRequestDetailModal] = useState(null); // request object | null
 
   // Editing states
@@ -298,17 +300,17 @@ const AdminDashboard = () => {
   const handleCreateTeam = async () => {
     setAddTeamError("");
     if (!teamName.trim()) return setAddTeamError("Team name is required.");
+    if (!teamVjudgeHandle.trim()) return setAddTeamError("Team VJudge handle is required.");
     for (let i = 0; i < 3; i++) {
       const m = teamMembers[i];
-      if (!m.handle.trim() || !m.name.trim() || !m.roll.trim() || !m.batch.trim())
-        return setAddTeamError(`All fields for Member ${i + 1} are required.`);
+      if (!m.name.trim() || !m.roll.trim() || !m.batch.trim())
+        return setAddTeamError(`All fields (Name, Roll, Batch) for Member ${i + 1} are required.`);
     }
 
     setIsAddingTeam(true);
     try {
-      const aliases = teamMembers.map((m) => m.handle.trim()).filter(Boolean);
-      await createVjudgeTeam({ name: teamName.trim(), aliases });
-      setTeamName(""); setTeamMembers([emptyMember(), emptyMember(), emptyMember()]);
+      await createVjudgeTeam({ name: teamName.trim(), aliases: [teamVjudgeHandle.trim()], members: teamMembers });
+      setTeamName(""); setTeamVjudgeHandle(""); setTeamMembers([emptyMember(), emptyMember(), emptyMember()]);
       setAddTeamModalOpen(false);
       await loadVjudge();
     } catch (err) {
@@ -356,6 +358,22 @@ const AdminDashboard = () => {
       await deleteHandle(id);
       await loadHandles();
     } catch (err) { alert(err?.response?.data?.message || "Failed to delete handle."); }
+  };
+
+  const handleDeleteTeam = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this team?")) return;
+    try {
+      await deleteVjudgeTeam(id);
+      await loadVjudge();
+    } catch (err) { alert(err?.response?.data?.message || "Failed to delete team."); }
+  };
+
+  const handleDeleteContest = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this contest?")) return;
+    try {
+      await deleteVjudgeContest(id);
+      await loadVjudge();
+    } catch (err) { alert(err?.response?.data?.message || "Failed to delete contest."); }
   };
 
   // ── Request Approval ───────────────────────────────────────────────────────
@@ -662,7 +680,8 @@ const AdminDashboard = () => {
                 <tr>
                   <th style={{ width: 44 }}>#</th>
                   <th>Team Name</th>
-                  <th>Member Handles</th>
+                  <th>VJudge Handle</th>
+                  <th style={{ width: 50, textAlign: "center" }}>Info</th>
                   <th style={{ width: 140, textAlign: "right" }}>Actions</th>
                 </tr>
               </thead>
@@ -688,6 +707,11 @@ const AdminDashboard = () => {
                           </span>
                         )}
                       </td>
+                      <td style={{ textAlign: "center" }}>
+                        <button className="icon-btn" onClick={() => setTeamDetailModal(team)} title="View team details">
+                          👁
+                        </button>
+                      </td>
                       <td>
                         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                           {isEditing ? (
@@ -707,12 +731,7 @@ const AdminDashboard = () => {
                                 setEditingTeamName(team.name);
                                 setEditingTeamAliases(team.aliases?.join(", ") || "");
                               }}>Edit</button>
-                              <button className="danger xs" onClick={async () => {
-                                if (window.confirm("Delete this team?")) {
-                                  await deleteVjudgeTeam(team._id);
-                                  await loadVjudge();
-                                }
-                              }}>Delete</button>
+                              <button className="danger xs" onClick={() => handleDeleteTeam(team._id)}>Delete</button>
                             </>
                           )}
                         </div>
@@ -752,52 +771,82 @@ const AdminDashboard = () => {
               <tbody>
                 {vjudgeContests.map((c) => {
                   const isEditing = editingContestId === c._id;
+                  const isEnabled = c.enabled !== false;
                   return (
                     <tr key={c._id}>
-                      <td style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>{c.contestId}</td>
-                      <td>
+                      <td style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>
                         {isEditing ? (
-                          <input type="text" value={editingContestTitle} onChange={(e) => setEditingContestTitle(e.target.value)} style={{ padding: "4px 8px" }} />
+                          <input type="text" value={editingContestValue} onChange={(e) => setEditingContestValue(e.target.value)} style={{ padding: "3px 6px", width: 90 }} />
                         ) : (
-                          c.title || "Untitled Contest"
+                          c.contestId
                         )}
                       </td>
                       <td>
                         {isEditing ? (
-                          <label style={{ fontSize: 12, cursor: "pointer" }}>
-                            <input type="checkbox" checked={editingContestEnabled} onChange={(e) => setEditingContestEnabled(e.target.checked)} style={{ width: "auto" }} /> Enabled
-                          </label>
+                          <input type="text" value={editingContestTitle} onChange={(e) => setEditingContestTitle(e.target.value)} style={{ padding: "3px 6px", width: "100%" }} />
                         ) : (
-                          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: c.enabled !== false ? "var(--success-light)" : "var(--bg-subtle)", color: c.enabled !== false ? "var(--success)" : "var(--text-muted)" }}>
-                            {c.enabled !== false ? "Active" : "Disabled"}
-                          </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontWeight: 600 }}>{c.title || "Untitled Contest"}</span>
+                            <button
+                              className="icon-btn"
+                              title="Edit contest"
+                              style={{ padding: "2px 4px", fontSize: 13 }}
+                              onClick={() => {
+                                setEditingContestId(c._id);
+                                setEditingContestValue(String(c.contestId || ""));
+                                setEditingContestTitle(c.title || "");
+                              }}
+                            >
+                              ✏️
+                            </button>
+                          </div>
                         )}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <button
+                          className={isEnabled ? "success xs" : "secondary xs"}
+                          style={{
+                            padding: "3px 10px",
+                            borderRadius: "999px",
+                            fontWeight: 600,
+                            fontSize: 11,
+                            background: isEnabled ? "var(--success-light)" : "var(--bg-subtle)",
+                            color: isEnabled ? "var(--success)" : "var(--text-muted)",
+                            border: `1px solid ${isEnabled ? "var(--success)" : "var(--border)"}`,
+                            cursor: "pointer"
+                          }}
+                          onClick={async () => {
+                            const actionText = isEnabled ? "disable" : "enable";
+                            if (window.confirm(`Are you sure you want to ${actionText} this contest?`)) {
+                              try {
+                                await updateVjudgeContest(c._id, { enabled: !isEnabled });
+                                await loadVjudge();
+                              } catch (err) {
+                                alert(err?.response?.data?.message || "Failed to update contest status.");
+                              }
+                            }
+                          }}
+                        >
+                          {isEnabled ? "● Enabled" : "○ Disabled"}
+                        </button>
                       </td>
                       <td>
                         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                           {isEditing ? (
                             <>
                               <button className="primary xs" onClick={async () => {
-                                await updateVjudgeContest(c._id, { title: editingContestTitle.trim(), enabled: editingContestEnabled });
-                                setEditingContestId(null);
-                                await loadVjudge();
+                                try {
+                                  await updateVjudgeContest(c._id, { contestId: editingContestValue.trim(), title: editingContestTitle.trim() });
+                                  setEditingContestId(null);
+                                  await loadVjudge();
+                                } catch (err) {
+                                  alert(err?.response?.data?.message || "Failed to update contest.");
+                                }
                               }}>Save</button>
                               <button className="secondary xs" onClick={() => setEditingContestId(null)}>Cancel</button>
                             </>
                           ) : (
-                            <>
-                              <button className="secondary xs" onClick={() => {
-                                setEditingContestId(c._id);
-                                setEditingContestTitle(c.title || "");
-                                setEditingContestEnabled(c.enabled !== false);
-                              }}>Edit</button>
-                              <button className="danger xs" onClick={async () => {
-                                if (window.confirm("Delete contest?")) {
-                                  await deleteVjudgeContest(c._id);
-                                  await loadVjudge();
-                                }
-                              }}>Delete</button>
-                            </>
+                            <button className="danger xs" onClick={() => handleDeleteContest(c._id)}>Delete</button>
                           )}
                         </div>
                       </td>
@@ -987,19 +1036,19 @@ const AdminDashboard = () => {
             </div>
             <div className="modal-body">
               {addTeamError && <div className="notice error" style={{ marginBottom: 12 }}>{addTeamError}</div>}
-              <div className="field" style={{ marginBottom: 16 }}>
+              <div className="field" style={{ marginBottom: 12 }}>
                 <label>Team Name *</label>
-                <input type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="Team Name" />
+                <input type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="Team Name (e.g. KUET_Alpha)" />
+              </div>
+              <div className="field" style={{ marginBottom: 16 }}>
+                <label>VJudge Team Handle *</label>
+                <input type="text" value={teamVjudgeHandle} onChange={(e) => setTeamVjudgeHandle(e.target.value)} placeholder="Team VJudge handle for rankings" />
               </div>
 
               {[0, 1, 2].map((i) => (
                 <div key={i} className="member-section">
                   <div className="member-section-label">Member {i + 1}</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                    <div className="field">
-                      <label>CF Handle *</label>
-                      <input type="text" value={teamMembers[i].handle} onChange={(e) => updateTeamMember(i, "handle", e.target.value)} placeholder="Handle" />
-                    </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                     <div className="field">
                       <label>Full Name *</label>
                       <input type="text" value={teamMembers[i].name} onChange={(e) => updateTeamMember(i, "name", e.target.value)} placeholder="Name" />
@@ -1087,6 +1136,59 @@ const AdminDashboard = () => {
             </div>
             <div className="modal-footer">
               <button className="secondary" onClick={() => setHandleDetailModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: TEAM DETAIL
+          ════════════════════════════════════════════════════════════════════ */}
+      {teamDetailModal && (
+        <div className="modal-overlay" onClick={() => setTeamDetailModal(null)}>
+          <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Team Details</h2>
+              <button className="modal-close" onClick={() => setTeamDetailModal(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              {[
+                ["Team Name", teamDetailModal.name],
+                ["VJudge Handle", (teamDetailModal.aliases || []).join(", ") || "—"],
+              ].map(([label, value]) => (
+                <div key={label} className="detail-row">
+                  <span className="detail-label">{label}</span>
+                  <span className="detail-value">{value}</span>
+                </div>
+              ))}
+
+              <div style={{ marginTop: 16 }}>
+                <h3 style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", marginBottom: 8 }}>
+                  Team Members
+                </h3>
+                {teamDetailModal.members && teamDetailModal.members.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {teamDetailModal.members.map((m, idx) => (
+                      <div key={idx} style={{ background: "var(--bg-subtle)", padding: "8px 12px", borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{m.name || `Member ${idx + 1}`}</div>
+                          {m.roll && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Roll: {m.roll}</div>}
+                        </div>
+                        {m.batch && (
+                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "var(--card-bg)", border: "1px solid var(--border)" }}>
+                            {normalizeBatch(m.batch) || m.batch}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)" }}>No member details recorded.</p>
+                )}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setTeamDetailModal(null)}>Close</button>
             </div>
           </div>
         </div>

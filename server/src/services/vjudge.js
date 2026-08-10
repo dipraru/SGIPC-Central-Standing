@@ -90,22 +90,35 @@ const buildRanklist = (rankData) => {
 
   const teams = new Map();
   Object.entries(rankData.participants).forEach(([teamId, info]) => {
-    const username = info?.[0] || "";
-    const displayName = info?.[1] || username || `Team ${teamId}`;
+    let username = "";
+    let nickname = "";
+    if (Array.isArray(info)) {
+      username = info[0] || "";
+      nickname = info[1] || "";
+    } else if (info && typeof info === "object") {
+      username = info.name || info.username || info.userName || "";
+      nickname = info.nickname || info.displayName || "";
+    } else if (typeof info === "string") {
+      username = info;
+    }
+
+    const displayName = username || nickname || `Team ${teamId}`;
+    const aliasSet = new Set(
+      [
+        displayName,
+        username,
+        nickname,
+        displayName.replace(/_/g, " "),
+        username.replace(/_/g, " "),
+        nickname.replace(/_/g, " "),
+      ].filter(Boolean)
+    );
+
     teams.set(Number(teamId), {
       teamId: Number(teamId),
       displayName,
       username,
-      aliases: Array.from(
-        new Set(
-          [
-            displayName,
-            username,
-            displayName.replace(/_/g, " "),
-            username.replace(/_/g, " "),
-          ].filter(Boolean)
-        )
-      ),
+      aliases: Array.from(aliasSet),
       solved: 0,
       penalty: 0,
       submissions: 0,
@@ -199,7 +212,7 @@ const getParticipantHandle = (participants = {}, teamId) => {
     return info[0] || info[1] || "";
   }
   if (typeof info === "object") {
-    return info.username || info.userName || info.name || "";
+    return info.name || info.username || info.userName || info.nickname || "";
   }
   return "";
 };
@@ -222,9 +235,12 @@ const findTeamRecord = (teamName, ranklist, participants = {}) => {
   if (!target) return null;
 
   const rankMatch = ranklist?.find((entry) => {
-    const aliases = [entry.team_name, entry.teamName, ...(entry.aliases || [])].filter(
-      Boolean
-    );
+    const aliases = [
+      entry.team_name,
+      entry.teamName,
+      entry.username,
+      ...(entry.aliases || []),
+    ].filter(Boolean);
     return aliases.some((alias) => normalizeName(alias) === target);
   });
 
@@ -233,8 +249,14 @@ const findTeamRecord = (teamName, ranklist, participants = {}) => {
   }
 
   for (const [teamId, info] of Object.entries(participants)) {
-    const aliases = [info?.[0], info?.[1], info?.[0]?.replace(/_/g, " "), info?.[1]?.replace(/_/g, " ")].filter(Boolean);
-    if (aliases.some((alias) => normalizeName(alias) === target)) {
+    const aliases = [];
+    if (Array.isArray(info)) {
+      aliases.push(...info);
+    } else if (info && typeof info === "object") {
+      aliases.push(info.name, info.username, info.userName, info.nickname, info.displayName);
+    }
+    const cleanAliases = aliases.filter(Boolean);
+    if (cleanAliases.some((alias) => normalizeName(alias) === target)) {
       return { participant: { id: Number(teamId), info } };
     }
   }

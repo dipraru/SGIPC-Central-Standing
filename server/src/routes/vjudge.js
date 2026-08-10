@@ -50,13 +50,14 @@ router.get("/vjudge/standings", async (req, res) => {
   const teamGroups = buildTeamGroups(teams);
   const standings = buildEloStandings(validContests, teamGroups, eloMode);
 
-  // Attach member aliases from DB to each standings row
+  // Attach member aliases and members from DB to each standings row
   const teamById = new Map(teams.map((t) => [t._id.toString(), t]));
   const standingsWithMembers = standings.map((row) => {
     const dbTeam = teamById.get(row.id);
     return {
       ...row,
       aliases: dbTeam?.aliases || [],
+      members: dbTeam?.members || [],
     };
   });
 

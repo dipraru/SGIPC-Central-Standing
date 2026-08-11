@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import {
   createHandle,
   deleteHandle,
+  forceRefreshHandle,
   getHandles,
   updateHandle,
   createVjudgeContest,
@@ -360,6 +361,22 @@ const AdminDashboard = () => {
     } catch (err) { alert(err?.response?.data?.message || "Failed to delete handle."); }
   };
 
+  const [refreshingHandleId, setRefreshingHandleId] = useState(null);
+  const handleForceRefresh = async (id, handle) => {
+    if (refreshingHandleId) return;
+    if (!window.confirm(`Force-refresh data for "${handle}"? This will re-activate them if inactive and pull the latest data from Codeforces.`)) return;
+    try {
+      setRefreshingHandleId(id);
+      const result = await forceRefreshHandle(id);
+      alert(result?.message || `${handle} refreshed successfully.`);
+      await loadHandles();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Force refresh failed.");
+    } finally {
+      setRefreshingHandleId(null);
+    }
+  };
+
   const handleDeleteTeam = async (id) => {
     if (!window.confirm("Are you sure you want to delete this team?")) return;
     try {
@@ -642,6 +659,15 @@ const AdminDashboard = () => {
                           ) : (
                             <>
                               <button className="secondary xs" onClick={() => startEditingHandle(row)}>Edit</button>
+                              <button
+                                className="secondary xs"
+                                onClick={() => handleForceRefresh(row._id, row.handle)}
+                                disabled={!!refreshingHandleId}
+                                title="Force re-fetch from Codeforces and re-activate if inactive"
+                                style={refreshingHandleId === row._id ? { opacity: 0.6 } : {}}
+                              >
+                                {refreshingHandleId === row._id ? "⏳" : "🔄"}
+                              </button>
                               <button className="danger xs" onClick={() => handleDeleteHandle(row._id)}>Delete</button>
                             </>
                           )}

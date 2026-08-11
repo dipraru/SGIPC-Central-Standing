@@ -211,6 +211,27 @@ router.delete("/handles/:id", authRequired, async (req, res) => {
   }
 });
 
+// Force-refresh a specific handle (re-activates it if it was incorrectly marked inactive)
+router.post("/handles/:id/refresh", authRequired, async (req, res) => {
+  const handleDoc = await Handle.findById(req.params.id).lean();
+  if (!handleDoc) {
+    return res.status(404).json({ message: "Handle not found" });
+  }
+  try {
+    // forceActive:true ensures the handle is re-activated even if previously inactive
+    await refreshHandleData(handleDoc.handle, { fullHistory: true, forceActive: true });
+    // Clear the inactive flag so it shows up in standings immediately
+    await Handle.updateOne(
+      { _id: req.params.id },
+      { isInactive: false, inactiveSince: null }
+    );
+    return res.json({ message: `Handle ${handleDoc.handle} refreshed and re-activated.` });
+  } catch (error) {
+    console.error(`Force-refresh failed for ${handleDoc.handle}:`, error.message);
+    return res.status(502).json({ message: "Refresh failed", error: error.message });
+  }
+});
+
 router.get("/requests", authRequired, async (req, res) => {
   const status = req.query.status;
   const filter = status ? { status } : {};

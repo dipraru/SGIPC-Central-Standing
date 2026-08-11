@@ -19,11 +19,12 @@ const HANDLE_REFRESH_DELAY_MS = 600;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Check if a handle has solved any problem in the last 90 days
+// Gym problems also count — some members primarily compete on VJudge/gym
 const hasRecentActivity = (solvedProblems) => {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const cutoff = nowSeconds - INACTIVE_THRESHOLD_SECONDS;
   return solvedProblems.some(
-    (p) => !p.isGym && p.solvedAtSeconds && p.solvedAtSeconds >= cutoff
+    (p) => p.solvedAtSeconds && p.solvedAtSeconds >= cutoff
   );
 };
 
@@ -254,26 +255,21 @@ export async function refreshHandleData(handle, options = {}) {
   }
 }
 
-// Refresh active handles with delay between each to avoid CF rate-limits
+// Refresh all handles, always including inactive ones so they can be
+// re-activated automatically if they start solving again.
 export async function refreshAllHandles(options = {}) {
-  const { fullHistory = false, forceHandles = [], includeInactive = false } = options;
+  const { fullHistory = false } = options;
   console.log(
-    `Starting refresh for handles (fullHistory=${fullHistory ? "yes" : "no"}, includeInactive=${includeInactive ? "yes" : "no"})...`
+    `Starting refresh for all handles (fullHistory=${fullHistory ? "yes" : "no"})...`
   );
 
-  // Fetch handles; skip inactive unless includeInactive is true or in forceHandles list
+  // Always fetch every handle — refreshHandleData itself decides whether to
+  // mark/unmark inactive based on hasRecentActivity.
   const allHandles = await Handle.find().select("handle isInactive").lean();
-  const handlesToRefresh = includeInactive
-    ? allHandles
-    : allHandles.filter(
-        (h) => !h.isInactive || forceHandles.includes(h.handle)
-      );
 
-  console.log(
-    `Refreshing ${handlesToRefresh.length} active handles (${allHandles.length - handlesToRefresh.length} inactive skipped)`
-  );
+  console.log(`Refreshing ${allHandles.length} handles (inactive handles included for re-activation check)`);
 
-  for (const { handle } of handlesToRefresh) {
+  for (const { handle } of allHandles) {
     await refreshHandleData(handle, { fullHistory });
     // Throttle to avoid hitting Codeforces rate limits
     await delay(HANDLE_REFRESH_DELAY_MS);

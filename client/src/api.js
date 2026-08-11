@@ -36,6 +36,11 @@ export const deleteHandle = async (id) => {
   await api.delete(`/admin/handles/${id}`);
 };
 
+export const forceRefreshHandle = async (id) => {
+  const { data } = await api.post(`/admin/handles/${id}/refresh`);
+  return data;
+};
+
 export const getStandings = async () => {
   const { data } = await api.get("/standings");
   return data;

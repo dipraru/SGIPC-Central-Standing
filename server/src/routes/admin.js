@@ -1,6 +1,7 @@
 import express from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
 import { Handle } from "../models/Handle.js";
 import { DailySolved } from "../models/DailySolved.js";
 import { HandleMeta } from "../models/HandleMeta.js";
@@ -195,19 +196,29 @@ router.put("/handles/:id", authRequired, async (req, res) => {
 
 router.delete("/handles/:id", authRequired, async (req, res) => {
   try {
-    const deleted = await Handle.findByIdAndDelete(req.params.id);
+    const { id } = req.params;
+    let deleted = null;
+    if (mongoose.isValidObjectId(id)) {
+      deleted = await Handle.findByIdAndDelete(id);
+    }
+    if (!deleted) {
+      deleted = await Handle.findOneAndDelete({
+        handle: { $regex: `^${id}$`, $options: "i" },
+      });
+    }
     if (!deleted) {
       return res.status(404).json({ message: "Handle not found" });
     }
-    await Promise.all([
+    await Promise.allSettled([
       DailySolved.deleteMany({ handle: deleted.handle }),
       PendingProblem.deleteMany({ handle: deleted.handle }),
       RatingHistory.deleteMany({ handle: deleted.handle }),
       HandleMeta.deleteMany({ handle: deleted.handle }),
     ]);
-    return res.status(204).send();
+    return res.status(200).json({ message: "Handle deleted successfully" });
   } catch (err) {
-    return res.status(400).json({ message: "Failed to delete handle" });
+    console.error("Delete handle error:", err);
+    return res.status(500).json({ message: "Failed to delete handle", error: err.message });
   }
 });
 

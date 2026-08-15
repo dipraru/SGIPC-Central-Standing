@@ -7,6 +7,7 @@ import {
   submitTeamRequest,
   submitReactivationRequest,
 } from "../api.js";
+import { BatchSelect } from "../components/BatchSelect.jsx";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const getRatingLevel = (r) => {
@@ -22,6 +23,39 @@ const rankCls = (n) => n === 1 ? "gold" : n === 2 ? "silver" : n === 3 ? "bronze
 
 const extractBatchDigits = (b) => { const m = (b || "").match(/(\d{2})$/); return m ? m[1] : null; };
 const normalizeBatch     = (b) => { const d = extractBatchDigits(b); return d ? `2K${d}` : null; };
+
+export const computeBatchOptions = (standings = [], teamStandings = [], inactiveList = []) => {
+  const digitsSet = new Set();
+  const addFromStr = (str) => {
+    const d = extractBatchDigits(str);
+    if (d) {
+      const num = parseInt(d, 10);
+      if (!isNaN(num)) digitsSet.add(num);
+    }
+  };
+
+  (standings || []).forEach((r) => addFromStr(r.batch));
+  (teamStandings || []).forEach((t) => (t.members || []).forEach((m) => addFromStr(m.batch)));
+  (inactiveList || []).forEach((r) => addFromStr(r.batch));
+
+  let batchNumbers = Array.from(digitsSet);
+  if (batchNumbers.length > 0) {
+    const maxBatch = Math.max(...batchNumbers);
+    const nextBatch = maxBatch + 1;
+    digitsSet.add(nextBatch);
+    batchNumbers = Array.from(digitsSet);
+  } else {
+    const currYear = new Date().getFullYear() % 100;
+    const nextYear = currYear + 1;
+    batchNumbers = [nextYear, currYear, currYear - 1, currYear - 2, currYear - 3, currYear - 4];
+  }
+
+  // Sort descending: most recent batches at top
+  batchNumbers.sort((a, b) => b - a);
+
+  // Format as 2K**
+  return batchNumbers.map((n) => `2K${String(n).padStart(2, "0")}`);
+};
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
 const CACHE_VER   = "v4";
@@ -49,12 +83,55 @@ const getInitialTab = () => {
 };
 const saveTab = (tab) => { try { sessionStorage.setItem(TAB_KEY, tab); } catch {} };
 
-// ─── EloMode labels ───────────────────────────────────────────────────────────
-const ELO_LABELS = {
-  "normal":              "Classic Elo",
-  "gain-only":           "Gain-only",
-  "zero-participation":  "Participation Required",
-};
+// ─── Team Ranking Types ───────────────────────────────────────────────────────
+const TEAM_RANKING_TYPES = [
+  {
+    id: "normal",
+    label: "Standard",
+    description: "Standard performance rating based on head-to-head contest results",
+  },
+  {
+    id: "gain-only",
+    label: "Gain Only",
+    description: "Performance ratings where teams only gain points without loss deductions",
+  },
+  {
+    id: "zero-participation",
+    label: "Participation Weighted",
+    description: "Overall rankings factoring in both contest performance and active participation",
+  },
+];
+
+// ─── Sort Indicator Component ────────────────────────────────────────────────
+export const SortIcon = ({ active, direction }) => (
+  <span
+    className={`sort-icon ${active ? "active" : ""}`}
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      verticalAlign: "middle",
+      marginLeft: 6,
+      opacity: active ? 1 : 0.4,
+      transition: "all 0.15s ease",
+      height: 14,
+      width: 10,
+    }}
+  >
+    <svg width="10" height="14" viewBox="0 0 10 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M5 1L1.5 5H8.5L5 1Z"
+        fill={active && direction === "asc" ? "var(--primary)" : "currentColor"}
+        opacity={active && direction === "desc" ? 0.25 : 1}
+      />
+      <path
+        d="M5 13L8.5 9H1.5L5 13Z"
+        fill={active && direction === "desc" ? "var(--primary)" : "currentColor"}
+        opacity={active && direction === "asc" ? 0.25 : 1}
+      />
+    </svg>
+  </span>
+);
 
 // ─── Empty team member ────────────────────────────────────────────────────────
 const emptyMember = () => ({ handle: "", name: "", roll: "", batch: "" });
@@ -89,10 +166,13 @@ const Standings = () => {
 
   // ── Team data ──────────────────────────────────────────────────────────────
   const [teamStandings,    setTeamStandings]    = useState([]);
+  const [teamStandingsMap, setTeamStandingsMap] = useState({ normal: [], "gain-only": [], "zero-participation": [] });
+  const [teamContests,     setTeamContests]     = useState([]);
+  const [selectedTeamType, setSelectedTeamType] = useState("normal");
   const [teamLoading,      setTeamLoading]      = useState(true);
   const [teamError,        setTeamError]        = useState("");
-  const [eloMode,          setEloMode]          = useState("normal");
   const [lastTeamFetchAt,  setLastTeamFetchAt]  = useState(null);
+  const [contestsModalOpen, setContestsModalOpen] = useState(false);
 
   // ── Inactive data ──────────────────────────────────────────────────────────
   const [inactiveList,      setInactiveList]      = useState([]);
@@ -130,7 +210,9 @@ const Standings = () => {
 
   const [rError,    setRError]    = useState("");
   const [rSuccess,  setRSuccess]  = useState("");
+  const [rDone,     setRDone]     = useState(false);
   const [rLoading,  setRLoading]  = useState(false);
+  const [requestFormKey, setRequestFormKey] = useState(0);
 
   // ── Column Sorting State (ephemeral, resets on refresh) ────────────────────
   const [sortField, setSortField] = useState(null); // null | 'handle' | 'maxRating' | 'solvedCount' | 'standingRating'
@@ -164,12 +246,15 @@ const Standings = () => {
     });
   }, [standings, sortField, sortDir]);
 
-  // ── Computed ───────────────────────────────────────────────────────────────
   const availableBatches = useMemo(() => {
     const s = new Set();
     standings.forEach((r) => { const n = normalizeBatch(r.batch); if (n) s.add(n); });
     return Array.from(s).sort();
   }, [standings]);
+
+  const formBatchOptions = useMemo(() => {
+    return computeBatchOptions(standings, teamStandings, inactiveList);
+  }, [standings, teamStandings, inactiveList]);
 
   const globalRankMap = useMemo(() => {
     const m = new Map();
@@ -224,8 +309,11 @@ const Standings = () => {
   const fetchTeam = useCallback(async () => {
     try {
       const data = await getVjudgeStandings();
+      if (data.standingsByType) {
+        setTeamStandingsMap(data.standingsByType);
+      }
       setTeamStandings(data.standings || []);
-      setEloMode(data.eloMode || "normal");
+      setTeamContests(data.contests || []);
       setTeamError("");
       setLastTeamFetchAt(Date.now());
       writeCache("teamStandings", data);
@@ -269,8 +357,13 @@ const Standings = () => {
     const load = async () => {
       const c = readCache("teamStandings");
       if (c) {
+        if (c.data?.standingsByType) {
+          setTeamStandingsMap(c.data.standingsByType);
+        }
         setTeamStandings(c.data?.standings || []);
-        setEloMode(c.data?.eloMode || "normal");
+        if (c.data?.contests) {
+          setTeamContests(c.data.contests);
+        }
         setTeamLoading(false);
       }
       const ok = await fetchTeam();
@@ -302,7 +395,8 @@ const Standings = () => {
   const resetRequestForm = () => {
     setRHandle(""); setRName(""); setRRoll(""); setRBatch(""); setRPasskey("");
     setRTeamName(""); setRTeamVjudgeHandle(""); setRMembers([emptyMember(), emptyMember(), emptyMember()]); setRTeamPasskey("");
-    setRError(""); setRSuccess("");
+    setRError(""); setRSuccess(""); setRDone(false);
+    setRequestFormKey((k) => k + 1);
   };
   const openRequestModal = () => { resetRequestForm(); setRequestTab("handle"); setRequestModal(true); };
 
@@ -312,27 +406,52 @@ const Standings = () => {
   const submitRequest = async () => {
     setRError(""); setRSuccess("");
     if (rLoading) return;
+
+    const BATCH_REGEX = /^2K\d{2}$/i;
+
     if (requestTab === "handle") {
       if (!rHandle.trim() || !rName.trim() || !rRoll.trim() || !rBatch.trim() || !rPasskey.trim())
         return setRError("All fields are required.");
+      if (!BATCH_REGEX.test(rBatch.trim()))
+        return setRError("Batch must be in the format 2K** (e.g. 2K22).");
     } else {
-      if (!rTeamName.trim() || !rTeamVjudgeHandle.trim() || !rTeamPasskey.trim()) return setRError("Team name, VJudge handle, and passkey are required.");
+      if (!rTeamName.trim() || !rTeamVjudgeHandle.trim() || !rTeamPasskey.trim())
+        return setRError("Team name, VJudge handle, and passkey are required.");
       for (let i = 0; i < 3; i++) {
         const m = rMembers[i];
         if (!m.name.trim() || !m.roll.trim() || !m.batch.trim())
           return setRError(`All fields (Name, Roll, Batch) for Member ${i + 1} are required.`);
+        if (!BATCH_REGEX.test(m.batch.trim()))
+          return setRError(`Batch for Member ${i + 1} must be in the format 2K** (e.g. 2K22).`);
       }
     }
     setRLoading(true);
     try {
       if (requestTab === "handle") {
-        await submitHandleRequest({ handle: rHandle.trim(), name: rName.trim(), roll: rRoll.trim(), batch: rBatch.trim(), passkey: rPasskey.trim() });
+        await submitHandleRequest({
+          handle: rHandle.trim(),
+          name: rName.trim(),
+          roll: rRoll.trim(),
+          batch: rBatch.trim().toUpperCase(),
+          passkey: rPasskey.trim(),
+        });
       } else {
-        await submitTeamRequest({ teamName: rTeamName.trim(), teamVjudgeHandle: rTeamVjudgeHandle.trim(), members: rMembers, passkey: rTeamPasskey.trim() });
+        await submitTeamRequest({
+          teamName: rTeamName.trim(),
+          teamVjudgeHandle: rTeamVjudgeHandle.trim(),
+          members: rMembers.map((m) => ({
+            name: m.name.trim(),
+            roll: m.roll.trim(),
+            batch: m.batch.trim().toUpperCase(),
+          })),
+          passkey: rTeamPasskey.trim(),
+        });
       }
+      setRDone(true);
       setRSuccess("Request submitted successfully!");
-      resetRequestForm();
-      setTimeout(() => setRSuccess(""), 3000);
+      setRHandle(""); setRName(""); setRRoll(""); setRBatch(""); setRPasskey("");
+      setRTeamName(""); setRTeamVjudgeHandle(""); setRMembers([emptyMember(), emptyMember(), emptyMember()]); setRTeamPasskey("");
+      setRequestFormKey((k) => k + 1);
     } catch (err) {
       setRError(err?.response?.data?.message || "Unable to submit request.");
     } finally {
@@ -368,7 +487,7 @@ const Standings = () => {
           <div>
             <span className="badge">SGIPC · Competitive Programming</span>
             <h1>Practice <span className="accent">Standings</span></h1>
-            <p>Live Elo-based rankings from Codeforces practice &amp; VJudge contests</p>
+            <p>Live rankings from Codeforces practice &amp; VJudge contests</p>
             <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
               <button className="primary sm" onClick={openRequestModal}>＋ Request to Join</button>
             </div>
@@ -395,7 +514,7 @@ const Standings = () => {
           <div className="card-header">
             <div>
               <h2>Individual Rankings</h2>
-              <p className="card-subtitle">Practice Elo rating based on Codeforces solved problems</p>
+              <p className="card-subtitle">Practice rating based on Codeforces solved problems</p>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {lastUpdated && (
@@ -497,16 +616,16 @@ const Standings = () => {
                   <tr>
                     <th style={{ width: 50 }}>#</th>
                     <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("handle")}>
-                      Handle / Name {sortField === "handle" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                      Handle / Name <SortIcon active={sortField === "handle"} direction={sortDir} />
                     </th>
-                    <th style={{ width: 100, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("maxRating")}>
-                      CF Max {sortField === "maxRating" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    <th style={{ width: 105, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("maxRating")}>
+                      CF Max <SortIcon active={sortField === "maxRating"} direction={sortDir} />
                     </th>
-                    <th style={{ width: 80, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("solvedCount")}>
-                      Solved {sortField === "solvedCount" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    <th style={{ width: 85, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("solvedCount")}>
+                      Solved <SortIcon active={sortField === "solvedCount"} direction={sortDir} />
                     </th>
-                    <th style={{ width: 160, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("standingRating")}>
-                      Practice Rating {sortField === "standingRating" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    <th style={{ width: 165, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("standingRating")}>
+                      Practice Rating <SortIcon active={sortField === "standingRating"} direction={sortDir} />
                     </th>
                     <th style={{ width: 60, textAlign: "center" }}>Info</th>
                     <th style={{ width: 90, textAlign: "center" }}>Activity</th>
@@ -667,17 +786,68 @@ const Standings = () => {
           ════════════════════════════════════════════════════════════════════ */}
       {activeTab === "team" && (
         <div className="card">
-          <div className="card-header">
+          <div className="card-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
             <div>
               <h2>Team Rankings</h2>
-              <p className="card-subtitle">VJudge contest performance · {ELO_LABELS[eloMode]}</p>
+              <p className="card-subtitle">
+                {TEAM_RANKING_TYPES.find((t) => t.id === selectedTeamType)?.description || "VJudge contest performance rankings"}
+              </p>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <button
+                className="secondary sm"
+                onClick={() => setContestsModalOpen(true)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontWeight: 600,
+                  fontSize: 13,
+                }}
+              >
+                📜 Considered Contests ({teamContests.filter((c) => c.enabled !== false).length})
+              </button>
+              {/* 3 Type Options */}
+              <div style={{
+                display: "flex",
+                gap: 4,
+                background: "var(--bg-subtle)",
+                padding: 4,
+                borderRadius: "var(--radius-lg)",
+                border: "1px solid var(--border)",
+                flexWrap: "wrap"
+              }}>
+                {TEAM_RANKING_TYPES.map((t) => {
+                  const isActive = selectedTeamType === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => setSelectedTeamType(t.id)}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: "var(--radius)",
+                        fontSize: 13,
+                        fontWeight: isActive ? 700 : 500,
+                        background: isActive ? "var(--primary)" : "transparent",
+                        color: isActive ? "#ffffff" : "var(--text-secondary)",
+                        border: "none",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                        boxShadow: isActive ? "0 2px 8px rgba(37, 99, 235, 0.25)" : "none"
+                      }}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
           {teamLoading && <div className="empty-state"><div className="loading-spinner" /><p>Loading team standings...</p></div>}
           {!teamLoading && teamError && <div className="notice error">{teamError}</div>}
-          {!teamLoading && !teamError && teamStandings.length === 0 && <div className="empty-state"><p>No team standings yet.</p></div>}
-          {!teamLoading && !teamError && teamStandings.length > 0 && (
+          {!teamLoading && !teamError && (teamStandingsMap[selectedTeamType] || teamStandings).length === 0 && <div className="empty-state"><p>No team standings yet.</p></div>}
+          {!teamLoading && !teamError && (teamStandingsMap[selectedTeamType] || teamStandings).length > 0 && (
             <table className="table">
               <thead>
                 <tr>
@@ -689,7 +859,7 @@ const Standings = () => {
                 </tr>
               </thead>
               <tbody>
-                {teamStandings.map((row) => (
+                {(teamStandingsMap[selectedTeamType] || teamStandings).map((row) => (
                   <tr key={row.id}>
                     <td data-label="#"><div className={`rank-badge ${rankCls(row.rank)}`}>{row.rank}</div></td>
                     <td data-label="Team Name">
@@ -734,87 +904,143 @@ const Standings = () => {
               <button className="modal-close" onClick={() => setRequestModal(false)}>×</button>
             </div>
             <div className="modal-body">
-              {/* Tab switcher */}
-              <div className="tabs" style={{ marginBottom: 18 }}>
-                <button className={`tab ${requestTab === "handle" ? "active" : ""}`} onClick={() => { setRequestTab("handle"); setRError(""); setRSuccess(""); }}>Individual</button>
-                <button className={`tab ${requestTab === "team" ? "active" : ""}`} onClick={() => { setRequestTab("team"); setRError(""); setRSuccess(""); }}>Team</button>
-              </div>
-
-              {rError && <div className="notice error" style={{ marginBottom: 14 }}>{rError}</div>}
-              {rSuccess && <div className="notice success" style={{ marginBottom: 14 }}>{rSuccess}</div>}
-
-              {/* Individual form */}
-              {requestTab === "handle" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div className="field" style={{ gridColumn: "1 / -1" }}>
-                    <label>Codeforces Handle *</label>
-                    <input type="text" value={rHandle} onChange={(e) => setRHandle(e.target.value)} placeholder="e.g. tourist" autoComplete="off" />
+              {rDone ? (
+                <div style={{ textAlign: "center", padding: "28px 16px 16px" }}>
+                  <div style={{
+                    width: 68,
+                    height: 68,
+                    borderRadius: "50%",
+                    background: "rgba(16, 185, 129, 0.12)",
+                    border: "2.5px solid #10b981",
+                    color: "#10b981",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 34,
+                    fontWeight: 800,
+                    marginBottom: 16,
+                    boxShadow: "0 4px 20px rgba(16, 185, 129, 0.25)"
+                  }}>
+                    ✓
                   </div>
-                  <div className="field">
-                    <label>Full Name *</label>
-                    <input type="text" value={rName} onChange={(e) => setRName(e.target.value)} placeholder="Your name" autoComplete="off" />
-                  </div>
-                  <div className="field">
-                    <label>Roll Number *</label>
-                    <input type="text" value={rRoll} onChange={(e) => setRRoll(e.target.value)} placeholder="e.g. 2024001" autoComplete="off" />
-                  </div>
-                  <div className="field">
-                    <label>Batch *</label>
-                    <input type="text" value={rBatch} onChange={(e) => setRBatch(e.target.value)} placeholder="e.g. 2K22" autoComplete="off" />
-                  </div>
-                  <div className="field">
-                    <label>SGIPC Passkey *</label>
-                    <input type="password" value={rPasskey} onChange={(e) => setRPasskey(e.target.value)} placeholder="Passkey" autoComplete="new-password" />
-                  </div>
+                  <h3 style={{ fontSize: 22, fontWeight: 700, color: "#10b981", margin: "0 0 8px" }}>Done</h3>
+                  <p style={{ color: "var(--text-secondary)", fontSize: 14, margin: "0 0 24px", maxWidth: 400, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
+                    Your request to join standings has been submitted successfully and is pending admin approval.
+                  </p>
+                  <button
+                    className="primary"
+                    onClick={() => setRequestModal(false)}
+                    style={{
+                      minWidth: 130,
+                      background: "#10b981",
+                      borderColor: "#10b981",
+                      color: "#ffffff",
+                      fontWeight: 700,
+                      boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)"
+                    }}
+                  >
+                    ✓ Done
+                  </button>
                 </div>
-              )}
-
-              {/* Team form — 3 members */}
-              {requestTab === "team" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  <div className="field">
-                    <label>Team Name *</label>
-                    <input type="text" value={rTeamName} onChange={(e) => setRTeamName(e.target.value)} placeholder="Team name (e.g. KUET_Alpha)" autoComplete="off" />
+              ) : (
+                <>
+                  {/* Tab switcher */}
+                  <div className="tabs" style={{ marginBottom: 18 }}>
+                    <button className={`tab ${requestTab === "handle" ? "active" : ""}`} onClick={() => { setRequestTab("handle"); setRError(""); setRSuccess(""); }}>Individual</button>
+                    <button className={`tab ${requestTab === "team" ? "active" : ""}`} onClick={() => { setRequestTab("team"); setRError(""); setRSuccess(""); }}>Team</button>
                   </div>
 
-                  <div className="field">
-                    <label>VJudge Team Handle *</label>
-                    <input type="text" value={rTeamVjudgeHandle} onChange={(e) => setRTeamVjudgeHandle(e.target.value)} placeholder="Team VJudge handle for rankings" autoComplete="off" />
-                  </div>
+                  {rError && <div className="notice error" style={{ marginBottom: 14 }}>{rError}</div>}
+                  {rSuccess && <div className="notice success" style={{ marginBottom: 14 }}>{rSuccess}</div>}
 
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="member-section">
-                      <div className="member-section-label">Member {i + 1}</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                        <div className="field">
-                          <label>Full Name *</label>
-                          <input type="text" value={rMembers[i].name} onChange={(e) => updateMember(i, "name", e.target.value)} placeholder="Full name" autoComplete="off" />
-                        </div>
-                        <div className="field">
-                          <label>Roll Number *</label>
-                          <input type="text" value={rMembers[i].roll} onChange={(e) => updateMember(i, "roll", e.target.value)} placeholder="Roll" autoComplete="off" />
-                        </div>
-                        <div className="field">
-                          <label>Batch *</label>
-                          <input type="text" value={rMembers[i].batch} onChange={(e) => updateMember(i, "batch", e.target.value)} placeholder="e.g. 2K22" autoComplete="off" />
-                        </div>
+                  {/* Individual form */}
+                  {requestTab === "handle" && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      <div className="field" style={{ gridColumn: "1 / -1" }}>
+                        <label>Codeforces Handle *</label>
+                        <input type="text" value={rHandle} onChange={(e) => setRHandle(e.target.value)} placeholder="e.g. tourist" autoComplete="off" />
+                      </div>
+                      <div className="field">
+                        <label>Full Name *</label>
+                        <input type="text" value={rName} onChange={(e) => setRName(e.target.value)} placeholder="Your name" autoComplete="off" />
+                      </div>
+                      <div className="field">
+                        <label>Roll Number *</label>
+                        <input type="text" value={rRoll} onChange={(e) => setRRoll(e.target.value)} placeholder="e.g. 2024001" autoComplete="off" />
+                      </div>
+                      <div className="field">
+                        <label>Batch *</label>
+                        <BatchSelect
+                          key={`${requestFormKey}-indiv`}
+                          value={rBatch}
+                          onChange={setRBatch}
+                          options={formBatchOptions}
+                          placeholder="Select Batch *"
+                        />
+                      </div>
+                      <div className="field">
+                        <label>SGIPC Passkey *</label>
+                        <input type="password" value={rPasskey} onChange={(e) => setRPasskey(e.target.value)} placeholder="Passkey" autoComplete="new-password" />
                       </div>
                     </div>
-                  ))}
+                  )}
 
-                  <div className="field">
-                    <label>SGIPC Passkey *</label>
-                    <input type="password" value={rTeamPasskey} onChange={(e) => setRTeamPasskey(e.target.value)} placeholder="Passkey" autoComplete="new-password" />
-                  </div>
-                </div>
+                  {/* Team form — 3 members */}
+                  {requestTab === "team" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                      <div className="field">
+                        <label>Team Name *</label>
+                        <input type="text" value={rTeamName} onChange={(e) => setRTeamName(e.target.value)} placeholder="Team name (e.g. KUET_Alpha)" autoComplete="off" />
+                      </div>
+
+                      <div className="field">
+                        <label>VJudge Team Handle *</label>
+                        <input type="text" value={rTeamVjudgeHandle} onChange={(e) => setRTeamVjudgeHandle(e.target.value)} placeholder="Team VJudge handle for rankings" autoComplete="off" />
+                      </div>
+
+                      {[0, 1, 2].map((i) => (
+                        <div key={i} className="member-section">
+                          <div className="member-section-label">Member {i + 1}</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                            <div className="field">
+                              <label>Full Name *</label>
+                              <input type="text" value={rMembers[i].name} onChange={(e) => updateMember(i, "name", e.target.value)} placeholder="Full name" autoComplete="off" />
+                            </div>
+                            <div className="field">
+                              <label>Roll Number *</label>
+                              <input type="text" value={rMembers[i].roll} onChange={(e) => updateMember(i, "roll", e.target.value)} placeholder="Roll" autoComplete="off" />
+                            </div>
+                            <div className="field">
+                              <label>Batch *</label>
+                              <BatchSelect
+                                key={`${requestFormKey}-team-${i}`}
+                                value={rMembers[i].batch}
+                                onChange={(val) => updateMember(i, "batch", val)}
+                                options={formBatchOptions}
+                                placeholder="Select Batch *"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+
+                      <div className="field">
+                        <label>SGIPC Passkey *</label>
+                        <input type="password" value={rTeamPasskey} onChange={(e) => setRTeamPasskey(e.target.value)} placeholder="Passkey" autoComplete="new-password" />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
-            <div className="modal-footer">
-              <button className="secondary" onClick={() => setRequestModal(false)}>Cancel</button>
-              <button className="primary" onClick={submitRequest} disabled={rLoading}>
-                {rLoading ? "Submitting…" : "Submit Request"}
-              </button>
-            </div>
+            {!rDone && (
+              <div className="modal-footer">
+                <button className="secondary" onClick={() => setRequestModal(false)}>Cancel</button>
+                <button className="primary" onClick={submitRequest} disabled={rLoading}>
+                  {rLoading ? "Submitting…" : "Submit Request"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -992,6 +1218,99 @@ const Standings = () => {
             </div>
             <div className="modal-footer">
               <button className="secondary" onClick={() => setActivityModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: CONSIDERED CONTESTS (TEAM)
+          ════════════════════════════════════════════════════════════════════ */}
+      {contestsModalOpen && (
+        <div className="modal-overlay" onClick={() => setContestsModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2>Considered Contests</h2>
+                <p className="card-subtitle" style={{ margin: "2px 0 0" }}>
+                  Contests counted in team standings. Click any contest to open its standings on VJudge.
+                </p>
+              </div>
+              <button className="modal-close" onClick={() => setContestsModalOpen(false)}>×</button>
+            </div>
+            <div className="modal-body" style={{ maxHeight: "60vh", overflowY: "auto", padding: "16px 20px" }}>
+              {teamContests.filter((c) => c.enabled !== false).length === 0 ? (
+                <div className="empty-state"><p>No active contests counted yet.</p></div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {teamContests.filter((c) => c.enabled !== false).map((c, idx) => (
+                    <a
+                      key={c._id || c.contestId}
+                      href={`https://vjudge.net/contest/${c.contestId}#rank`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="contest-link-item"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "12px 16px",
+                        background: "var(--bg-subtle)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--radius)",
+                        textDecoration: "none",
+                        transition: "all 0.15s ease",
+                        gap: 12,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                        <span style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: "var(--text-muted)",
+                          width: 22,
+                          textAlign: "right",
+                          flexShrink: 0
+                        }}>
+                          {idx + 1}.
+                        </span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{
+                            fontWeight: 600,
+                            fontSize: 14,
+                            color: "var(--text-primary)",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis"
+                          }}>
+                            {c.title || `Contest #${c.contestId}`}
+                          </div>
+                          <div style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                            Contest ID: {c.contestId}
+                          </div>
+                        </div>
+                      </div>
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "var(--primary)",
+                        background: "rgba(37, 99, 235, 0.08)",
+                        padding: "4px 10px",
+                        borderRadius: 6,
+                        flexShrink: 0
+                      }}>
+                        View Standings ↗
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setContestsModalOpen(false)}>Close</button>
             </div>
           </div>
         </div>

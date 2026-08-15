@@ -9,6 +9,8 @@ import {
   createVjudgeTeam,
   deleteVjudgeContest,
   deleteVjudgeTeam,
+  refreshVjudgeTeam,
+  refreshAllVjudgeContests,
   getVjudgeConfig,
   getVjudgeContests,
   getVjudgeTeams,
@@ -21,6 +23,8 @@ import {
   rejectRequest,
   updatePasskey,
 } from "../api.js";
+import { BatchSelect } from "../components/BatchSelect.jsx";
+import { computeBatchOptions, SortIcon } from "./Standings.jsx";
 
 // ─── Session Tab Persistence ──────────────────────────────────────────────────
 const ADMIN_TAB_KEY = "sgipc_admin_tab";
@@ -84,6 +88,8 @@ const AdminDashboard = () => {
   const [handleDetailModal, setHandleDetailModal] = useState(null); // handle object | null
   const [teamDetailModal, setTeamDetailModal] = useState(null); // team object | null
   const [requestDetailModal, setRequestDetailModal] = useState(null); // request object | null
+  const [deleteModal, setDeleteModal] = useState(null); // { type: 'handle' | 'team' | 'contest', id: string, name: string } | null
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Editing states
   const [editingHandleId, setEditingHandleId] = useState(null);
@@ -195,12 +201,15 @@ const AdminDashboard = () => {
     return m;
   }, [handles]);
 
-  // ── Filters & Search ───────────────────────────────────────────────────────
   const availableBatches = useMemo(() => {
     const s = new Set();
     handles.forEach((r) => { const n = normalizeBatch(r.batch); if (n) s.add(n); });
     return Array.from(s).sort();
   }, [handles]);
+
+  const formBatchOptions = useMemo(() => {
+    return computeBatchOptions(handles, vjudgeTeams);
+  }, [handles, vjudgeTeams]);
 
   const filteredHandles = useMemo(() => {
     let list = sortedHandles;
@@ -353,44 +362,83 @@ const AdminDashboard = () => {
     } catch (err) { alert(err?.response?.data?.message || "Failed to update handle."); }
   };
 
-  const handleDeleteHandle = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this handle?")) return;
+  const confirmExecuteDelete = async () => {
+    if (!deleteModal || isDeleting) return;
+    const { type, id } = deleteModal;
+    setIsDeleting(true);
     try {
-      await deleteHandle(id);
-      await loadHandles();
-    } catch (err) { alert(err?.response?.data?.message || "Failed to delete handle."); }
+      if (type === "handle") {
+        await deleteHandle(id);
+        setHandles((prev) => prev.filter((h) => (h._id || h.id) !== id && h.handle !== id));
+        await loadHandles();
+      } else if (type === "team") {
+        await deleteVjudgeTeam(id);
+        setVjudgeTeams((prev) => prev.filter((t) => (t._id || t.id) !== id && t.name !== id));
+        await loadVjudge();
+      } else if (type === "contest") {
+        await deleteVjudgeContest(id);
+        setVjudgeContests((prev) => prev.filter((c) => (c._id || c.id) !== id && String(c.contestId) !== String(id)));
+        await loadVjudge();
+      }
+      setDeleteModal(null);
+    } catch (err) {
+      if (!handleAuthError(err)) {
+        alert(err?.response?.data?.message || "Failed to delete.");
+      }
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const [refreshingHandleId, setRefreshingHandleId] = useState(null);
   const handleForceRefresh = async (id, handle) => {
-    if (refreshingHandleId) return;
-    if (!window.confirm(`Force-refresh data for "${handle}"? This will re-activate them if inactive and pull the latest data from Codeforces.`)) return;
+    if (!id || refreshingHandleId) return;
     try {
       setRefreshingHandleId(id);
       const result = await forceRefreshHandle(id);
       alert(result?.message || `${handle} refreshed successfully.`);
       await loadHandles();
     } catch (err) {
-      alert(err?.response?.data?.message || "Force refresh failed.");
+      if (!handleAuthError(err)) {
+        alert(err?.response?.data?.message || "Force refresh failed.");
+      }
     } finally {
       setRefreshingHandleId(null);
     }
   };
 
-  const handleDeleteTeam = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this team?")) return;
+  const [refreshingTeamId, setRefreshingTeamId] = useState(null);
+  const handleRefreshTeam = async (id, teamName) => {
+    if (!id || refreshingTeamId) return;
     try {
-      await deleteVjudgeTeam(id);
+      setRefreshingTeamId(id);
+      const result = await refreshVjudgeTeam(id);
+      alert(result?.message || `Team ${teamName} refreshed successfully.`);
       await loadVjudge();
-    } catch (err) { alert(err?.response?.data?.message || "Failed to delete team."); }
+    } catch (err) {
+      if (!handleAuthError(err)) {
+        alert(err?.response?.data?.message || "Team refresh failed.");
+      }
+    } finally {
+      setRefreshingTeamId(null);
+    }
   };
 
-  const handleDeleteContest = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this contest?")) return;
+  const [isRefreshingAllVjudge, setIsRefreshingAllVjudge] = useState(false);
+  const handleRefreshAllVjudge = async () => {
+    if (isRefreshingAllVjudge) return;
     try {
-      await deleteVjudgeContest(id);
+      setIsRefreshingAllVjudge(true);
+      const result = await refreshAllVjudgeContests();
+      alert(result?.message || "VJudge contests refreshed successfully.");
       await loadVjudge();
-    } catch (err) { alert(err?.response?.data?.message || "Failed to delete contest."); }
+    } catch (err) {
+      if (!handleAuthError(err)) {
+        alert(err?.response?.data?.message || "Failed to refresh VJudge standings.");
+      }
+    } finally {
+      setIsRefreshingAllVjudge(false);
+    }
   };
 
   // ── Request Approval ───────────────────────────────────────────────────────
@@ -522,9 +570,14 @@ const AdminDashboard = () => {
               <h2>Codeforces Participants ({filteredHandles.length})</h2>
               <p className="card-subtitle">Active individual standings participants</p>
             </div>
-            <button className="primary sm" onClick={() => { setAddHandleError(""); setAddHandleModalOpen(true); }}>
-              ＋ Add Participant
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="secondary sm" onClick={loadHandles} disabled={loading}>
+                {loading ? "Refreshing…" : "↻ Refresh"}
+              </button>
+              <button className="primary sm" onClick={() => { setAddHandleError(""); setAddHandleModalOpen(true); }}>
+                ＋ Add Participant
+              </button>
+            </div>
           </div>
 
           {/* Filter Bar */}
@@ -585,18 +638,18 @@ const AdminDashboard = () => {
                 <tr>
                   <th style={{ width: 44 }}>#</th>
                   <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("handle")}>
-                    Handle / Name {sortField === "handle" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    Handle / Name <SortIcon active={sortField === "handle"} direction={sortDir} />
                   </th>
                   <th>Roll</th>
                   <th>Batch</th>
-                  <th style={{ width: 90, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("maxRating")}>
-                    CF Max {sortField === "maxRating" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  <th style={{ width: 95, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("maxRating")}>
+                    CF Max <SortIcon active={sortField === "maxRating"} direction={sortDir} />
                   </th>
-                  <th style={{ width: 80, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("solvedCount")}>
-                    Solved {sortField === "solvedCount" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  <th style={{ width: 85, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("solvedCount")}>
+                    Solved <SortIcon active={sortField === "solvedCount"} direction={sortDir} />
                   </th>
-                  <th style={{ width: 110, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("standingRating")}>
-                    Practice {sortField === "standingRating" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  <th style={{ width: 115, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("standingRating")}>
+                    Practice <SortIcon active={sortField === "standingRating"} direction={sortDir} />
                   </th>
                   <th style={{ width: 50, textAlign: "center" }}>Info</th>
                   <th style={{ width: 140, textAlign: "right" }}>Actions</th>
@@ -653,7 +706,7 @@ const AdminDashboard = () => {
                         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                           {isEditing ? (
                             <>
-                              <button className="primary xs" onClick={() => saveEditingHandle(row._id)}>Save</button>
+                              <button className="primary xs" onClick={() => saveEditingHandle(row._id || row.id)}>Save</button>
                               <button className="secondary xs" onClick={() => setEditingHandleId(null)}>Cancel</button>
                             </>
                           ) : (
@@ -661,14 +714,19 @@ const AdminDashboard = () => {
                               <button className="secondary xs" onClick={() => startEditingHandle(row)}>Edit</button>
                               <button
                                 className="secondary xs"
-                                onClick={() => handleForceRefresh(row._id, row.handle)}
-                                disabled={!!refreshingHandleId}
+                                onClick={() => handleForceRefresh(row._id || row.id, row.handle)}
+                                disabled={refreshingHandleId === (row._id || row.id)}
                                 title="Force re-fetch from Codeforces and re-activate if inactive"
-                                style={refreshingHandleId === row._id ? { opacity: 0.6 } : {}}
+                                style={refreshingHandleId === (row._id || row.id) ? { opacity: 0.6 } : {}}
                               >
-                                {refreshingHandleId === row._id ? "⏳" : "🔄"}
+                                {refreshingHandleId === (row._id || row.id) ? "⏳" : "🔄"}
                               </button>
-                              <button className="danger xs" onClick={() => handleDeleteHandle(row._id)}>Delete</button>
+                              <button
+                                className="danger xs"
+                                onClick={() => setDeleteModal({ type: "handle", id: row._id || row.id, name: row.name ? `${row.name} (${row.handle})` : row.handle })}
+                              >
+                                Delete
+                              </button>
                             </>
                           )}
                         </div>
@@ -692,9 +750,17 @@ const AdminDashboard = () => {
               <h2>VJudge Teams ({vjudgeTeams.length})</h2>
               <p className="card-subtitle">Manage teams for team contest standings</p>
             </div>
-            <button className="primary sm" onClick={() => { setAddTeamError(""); setAddTeamModalOpen(true); }}>
-              ＋ Add Team
-            </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="secondary sm" onClick={loadVjudge} disabled={loading}>
+                {loading ? "Refreshing…" : "↻ Refresh"}
+              </button>
+              <button className="secondary sm" onClick={handleRefreshAllVjudge} disabled={isRefreshingAllVjudge}>
+                {isRefreshingAllVjudge ? "Refreshing VJudge…" : "↻ Refresh VJudge Standings"}
+              </button>
+              <button className="primary sm" onClick={() => { setAddTeamError(""); setAddTeamModalOpen(true); }}>
+                ＋ Add Team
+              </button>
+            </div>
           </div>
 
           {/* Teams Table */}
@@ -744,7 +810,7 @@ const AdminDashboard = () => {
                             <>
                               <button className="primary xs" onClick={async () => {
                                 const aliases = editingTeamAliases.split(",").map((x) => x.trim()).filter(Boolean);
-                                await updateVjudgeTeam(team._id, { name: editingTeamName.trim(), aliases });
+                                await updateVjudgeTeam(team._id || team.id, { name: editingTeamName.trim(), aliases });
                                 setEditingTeamId(null);
                                 await loadVjudge();
                               }}>Save</button>
@@ -753,11 +819,25 @@ const AdminDashboard = () => {
                           ) : (
                             <>
                               <button className="secondary xs" onClick={() => {
-                                setEditingTeamId(team._id);
+                                setEditingTeamId(team._id || team.id);
                                 setEditingTeamName(team.name);
                                 setEditingTeamAliases(team.aliases?.join(", ") || "");
                               }}>Edit</button>
-                              <button className="danger xs" onClick={() => handleDeleteTeam(team._id)}>Delete</button>
+                              <button
+                                className="secondary xs"
+                                onClick={() => handleRefreshTeam(team._id || team.id, team.name)}
+                                disabled={refreshingTeamId === (team._id || team.id)}
+                                title="Refresh team rankings from VJudge"
+                                style={refreshingTeamId === (team._id || team.id) ? { opacity: 0.6 } : {}}
+                              >
+                                {refreshingTeamId === (team._id || team.id) ? "⏳" : "🔄"}
+                              </button>
+                              <button
+                                className="danger xs"
+                                onClick={() => setDeleteModal({ type: "team", id: team._id || team.id, name: team.name })}
+                              >
+                                Delete
+                              </button>
                             </>
                           )}
                         </div>
@@ -775,7 +855,7 @@ const AdminDashboard = () => {
           <div className="card-header" style={{ marginTop: 24 }}>
             <div>
               <h2>VJudge Contests ({vjudgeContests.length})</h2>
-              <p className="card-subtitle">Contests included in team Elo rating calculation</p>
+              <p className="card-subtitle">Contests included in team rating calculation</p>
             </div>
             <button className="secondary sm" onClick={() => setAddContestModalOpen(true)}>
               ＋ Add Contest
@@ -842,12 +922,11 @@ const AdminDashboard = () => {
                             cursor: "pointer"
                           }}
                           onClick={async () => {
-                            const actionText = isEnabled ? "disable" : "enable";
-                            if (window.confirm(`Are you sure you want to ${actionText} this contest?`)) {
-                              try {
-                                await updateVjudgeContest(c._id, { enabled: !isEnabled });
-                                await loadVjudge();
-                              } catch (err) {
+                            try {
+                              await updateVjudgeContest(c._id, { enabled: !isEnabled });
+                              await loadVjudge();
+                            } catch (err) {
+                              if (!handleAuthError(err)) {
                                 alert(err?.response?.data?.message || "Failed to update contest status.");
                               }
                             }
@@ -872,7 +951,7 @@ const AdminDashboard = () => {
                               <button className="secondary xs" onClick={() => setEditingContestId(null)}>Cancel</button>
                             </>
                           ) : (
-                            <button className="danger xs" onClick={() => handleDeleteContest(c._id)}>Delete</button>
+                            <button className="danger xs" onClick={() => setDeleteModal({ type: "contest", id: c._id || c.id, name: c.title || `Contest #${c.contestId}` })}>Delete</button>
                           )}
                         </div>
                       </td>
@@ -882,25 +961,6 @@ const AdminDashboard = () => {
               </tbody>
             </table>
           )}
-
-          {/* Contest Mode Config */}
-          <div style={{ marginTop: 24, padding: 16, background: "var(--bg-subtle)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)" }}>
-            <div className="field" style={{ maxWidth: 300 }}>
-              <label>Team Elo Rating Mode</label>
-              <select
-                value={vjudgeConfig.eloMode || "normal"}
-                onChange={async (e) => {
-                  const mode = e.target.value;
-                  setVjudgeConfig((p) => ({ ...p, eloMode: mode }));
-                  await updateVjudgeConfig({ eloMode: mode });
-                }}
-              >
-                <option value="normal">Classic Elo (standard wins/losses)</option>
-                <option value="gain-only">Gain-Only Elo (no loss penalization)</option>
-                <option value="zero-participation">Participation Required (unattended = loss)</option>
-              </select>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1036,7 +1096,12 @@ const AdminDashboard = () => {
                 </div>
                 <div className="field">
                   <label>Batch</label>
-                  <input type="text" value={newBatch} onChange={(e) => setNewBatch(e.target.value)} placeholder="e.g. 2K22" />
+                  <BatchSelect
+                    value={newBatch}
+                    onChange={setNewBatch}
+                    options={formBatchOptions}
+                    placeholder="Select Batch"
+                  />
                 </div>
               </div>
             </div>
@@ -1085,7 +1150,12 @@ const AdminDashboard = () => {
                     </div>
                     <div className="field">
                       <label>Batch *</label>
-                      <input type="text" value={teamMembers[i].batch} onChange={(e) => updateTeamMember(i, "batch", e.target.value)} placeholder="e.g. 2K22" />
+                      <BatchSelect
+                        value={teamMembers[i].batch}
+                        onChange={(val) => updateTeamMember(i, "batch", val)}
+                        options={formBatchOptions}
+                        placeholder="Select Batch *"
+                      />
                     </div>
                   </div>
                 </div>
@@ -1356,6 +1426,42 @@ const AdminDashboard = () => {
             <div className="modal-footer">
               <button className="secondary" onClick={() => setShowPasskeyModal(false)}>Cancel</button>
               <button className="primary" onClick={handleUpdatePasskey}>Update Passkey</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: DELETE CONFIRMATION
+          ════════════════════════════════════════════════════════════════════ */}
+      {deleteModal && (
+        <div className="modal-overlay" onClick={() => !isDeleting && setDeleteModal(null)}>
+          <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 style={{ color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>⚠️</span> Confirm Delete
+              </h2>
+              <button className="modal-close" onClick={() => !isDeleting && setDeleteModal(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ margin: "0 0 12px", fontSize: 15, color: "var(--text-primary)", fontWeight: 500 }}>
+                Are you sure you want to delete <strong style={{ color: "var(--primary)" }}>{deleteModal.name}</strong>?
+              </p>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>
+                This will permanently remove this {deleteModal.type} and its associated records from SGIPC Standings. This action cannot be undone.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setDeleteModal(null)} disabled={isDeleting}>
+                Cancel
+              </button>
+              <button
+                className="danger"
+                onClick={confirmExecuteDelete}
+                disabled={isDeleting}
+                style={{ minWidth: 100, fontWeight: 700 }}
+              >
+                {isDeleting ? "Deleting…" : "Delete"}
+              </button>
             </div>
           </div>
         </div>

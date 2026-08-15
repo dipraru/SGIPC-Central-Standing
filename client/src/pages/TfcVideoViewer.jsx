@@ -140,7 +140,7 @@ const TfcVideoViewer = () => {
           </span>
         </div>
 
-        {participant.playlistUrl && (
+        {participant.playlistUrl && participant.playlistUrl !== "N/A" && (
           <a
             href={participant.playlistUrl}
             target="_blank"
@@ -240,112 +240,184 @@ const TfcVideoViewer = () => {
         </div>
       </div>
 
-      {/* ── VIDEO PLAYER & DIRECTORY PLAYLIST ─────────────────────────────── */}
-      <div className="tfc-video-hub-layout">
-        {/* Left: Cinema Player */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div className="tfc-player-box">
-            <div className="tfc-iframe-container">
-              {selectedVideo ? (
-                <iframe
-                  src={`${selectedVideo.embedUrl}?autoplay=1&rel=0`}
-                  title={selectedVideo.title}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                />
-              ) : ytInfo?.id ? (
-                <iframe
-                  src={`https://www.youtube-nocookie.com/embed/videoseries?list=${ytInfo.id}`}
-                  title="Contest Recordings Playlist"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              ) : (
-                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" }}>
-                  No video selected
-                </div>
-              )}
-            </div>
+      {/* ── RECORDINGS DISPLAY OR NO RECORDINGS STATE ─────────────────────────── */}
+      {videos.length === 0 ? (
+        <div
+          className="card"
+          style={{
+            textAlign: "center",
+            padding: "48px 24px",
+            border: "1px solid var(--border)",
+            background: "var(--bg-white)",
+            borderRadius: "var(--radius-xl)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          <div
+            style={{
+              width: 60,
+              height: 60,
+              borderRadius: "50%",
+              background: "rgba(100, 116, 139, 0.1)",
+              border: "1.5px solid var(--border)",
+              color: "var(--text-muted)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 26,
+              margin: "0 auto 16px",
+            }}
+          >
+            📹
+          </div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 8px", color: "var(--text-primary)" }}>
+            No Valid Recordings Available
+          </h2>
+          <p style={{ color: "var(--text-secondary)", fontSize: 13, maxWidth: 480, margin: "0 auto 20px", lineHeight: 1.5 }}>
+            {!participant.playlistUrl || participant.playlistUrl === "N/A"
+              ? "This contestant has not submitted a screen recording playlist or video link yet."
+              : !ytInfo?.id
+              ? "The submitted recording link is invalid or unsupported. Please verify the URL format."
+              : "No video recordings could be found in the submitted playlist. The playlist might be private or empty."}
+          </p>
 
-            <div className="tfc-player-footer">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <h3 style={{ color: "var(--text-primary)", fontSize: 16, fontWeight: 700, margin: "0 0 4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {selectedVideo?.title || "Contest Recording"}
-                </h3>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12, color: "var(--text-muted)" }}>
-                  {selectedVideo?.duration && (
-                    <span style={{ fontWeight: 600, color: "var(--primary)" }}>⏱ {selectedVideo.duration}</span>
-                  )}
-                  {selectedVideo?.publishedAt && (
-                    <span>Uploaded: {new Date(selectedVideo.publishedAt).toLocaleDateString()}</span>
-                  )}
-                </div>
-              </div>
-
-              <button
-                className="danger sm"
-                onClick={() => openReportModal(selectedVideo)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  background: "rgba(239, 68, 68, 0.12)",
-                  color: "#ef4444",
-                  borderColor: "rgba(239, 68, 68, 0.3)",
-                  fontWeight: 700,
-                  boxShadow: "none",
-                }}
+          {participant.playlistUrl && participant.playlistUrl !== "N/A" && (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 14px",
+                background: "var(--bg-subtle)",
+                borderRadius: "var(--radius)",
+                border: "1px solid var(--border)",
+                marginBottom: 20,
+                fontSize: 12,
+                color: "var(--text-muted)",
+                maxWidth: "100%",
+                wordBreak: "break-all",
+              }}
+            >
+              <span>Submitted Link:</span>
+              <a
+                href={participant.playlistUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "var(--primary)", fontWeight: 600, textDecoration: "underline" }}
               >
-                <span>Report Anonymously 🚩</span>
-                {selectedVideo?.reportCount > 0 && (
-                  <span style={{
-                    background: "#dc2626",
-                    color: "#ffffff",
-                    padding: "1px 6px",
-                    fontSize: 11,
-                    borderRadius: 999,
-                    fontWeight: 800,
-                    marginLeft: 4,
-                  }}>
-                    {selectedVideo.reportCount}
-                  </span>
-                )}
-              </button>
+                {participant.playlistUrl}
+              </a>
             </div>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
+            <Link to="/tfc" className="secondary sm">
+              ← Back to TFC Corner
+            </Link>
+            {participant.playlistUrl && participant.playlistUrl !== "N/A" && (
+              <a
+                href={participant.playlistUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="primary sm"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <span>Check Link on YouTube ↗</span>
+              </a>
+            )}
           </div>
         </div>
+      ) : (
+        /* ── VIDEO PLAYER & DIRECTORY PLAYLIST ─────────────────────────────── */
+        <div className="tfc-video-hub-layout">
+          {/* Left: Cinema Player */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div className="tfc-player-box">
+              <div className="tfc-iframe-container">
+                {selectedVideo ? (
+                  <iframe
+                    src={`${selectedVideo.embedUrl}?autoplay=1&rel=0`}
+                    title={selectedVideo.title}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
+                ) : ytInfo?.id ? (
+                  <iframe
+                    src={`https://www.youtube-nocookie.com/embed/videoseries?list=${ytInfo.id}`}
+                    title="Contest Recordings Playlist"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" }}>
+                    No video selected
+                  </div>
+                )}
+              </div>
 
-        {/* Right: Video Directory Playlist */}
-        <div className="tfc-playlist-panel">
-          <div className="tfc-playlist-header">
-            <div>
-              <strong style={{ fontSize: 14, color: "var(--text-primary)" }}>
-                Contest Recordings ({videos.length})
-              </strong>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                Click any video to watch in player
+              <div className="tfc-player-footer">
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <h3 style={{ color: "var(--text-primary)", fontSize: 16, fontWeight: 700, margin: "0 0 4px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {selectedVideo?.title || "Contest Recording"}
+                  </h3>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12, color: "var(--text-muted)" }}>
+                    {selectedVideo?.duration && (
+                      <span style={{ fontWeight: 600, color: "var(--primary)" }}>⏱ {selectedVideo.duration}</span>
+                    )}
+                    {selectedVideo?.publishedAt && (
+                      <span>Uploaded: {new Date(selectedVideo.publishedAt).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  className="danger sm"
+                  onClick={() => openReportModal(selectedVideo)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "rgba(239, 68, 68, 0.12)",
+                    color: "#ef4444",
+                    borderColor: "rgba(239, 68, 68, 0.3)",
+                    fontWeight: 700,
+                    boxShadow: "none",
+                  }}
+                >
+                  <span>Report Anonymously 🚩</span>
+                  {selectedVideo?.reportCount > 0 && (
+                    <span style={{
+                      background: "#dc2626",
+                      color: "#ffffff",
+                      padding: "1px 6px",
+                      fontSize: 11,
+                      borderRadius: 999,
+                      fontWeight: 800,
+                      marginLeft: 4,
+                    }}>
+                      {selectedVideo.reportCount}
+                    </span>
+                  )}
+                </button>
               </div>
             </div>
           </div>
 
-          <div className="tfc-playlist-items">
-            {videos.length === 0 ? (
-              <div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
-                <p>No video recordings found in this playlist yet.</p>
-                {participant.playlistUrl && (
-                  <a
-                    href={participant.playlistUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="primary xs"
-                    style={{ marginTop: 10, display: "inline-block" }}
-                  >
-                    View on YouTube ↗
-                  </a>
-                )}
+          {/* Right: Video Directory Playlist */}
+          <div className="tfc-playlist-panel">
+            <div className="tfc-playlist-header">
+              <div>
+                <strong style={{ fontSize: 14, color: "var(--text-primary)" }}>
+                  Contest Recordings ({videos.length})
+                </strong>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  Click any video to watch in player
+                </div>
               </div>
-            ) : (
-              videos.map((vid, idx) => {
+            </div>
+
+            <div className="tfc-playlist-items">
+              {videos.map((vid, idx) => {
                 const isCurrent = selectedVideo?.videoId === vid.videoId;
                 const hasReports = (vid.reportCount || 0) > 0;
                 return (
@@ -414,11 +486,11 @@ const TfcVideoViewer = () => {
                     </div>
                   </div>
                 );
-              })
-            )}
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ════════════════════════════════════════════════════════════════════
           ANONYMOUS VIDEO REPORT MODAL

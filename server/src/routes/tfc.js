@@ -10,6 +10,10 @@ import { buildEloStandings, fetchContestRank } from "../services/vjudge.js";
 
 const router = express.Router();
 
+// In-memory cache for playlist videos (TTL: 5 minutes)
+const playlistCache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
 // Helper to extract YouTube playlist ID or Video ID
 export const parseYoutubeUrl = (url) => {
   if (!url || typeof url !== "string") return { type: null, id: null };
@@ -21,8 +25,8 @@ export const parseYoutubeUrl = (url) => {
     return { type: "playlist", id: playlistMatch[1] };
   }
 
-  // Single video match
-  const videoMatch = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/i);
+  // Single video / shorts / embed match
+  const videoMatch = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/i);
   if (videoMatch && videoMatch[1]) {
     return { type: "video", id: videoMatch[1] };
   }
@@ -30,65 +34,211 @@ export const parseYoutubeUrl = (url) => {
   return { type: null, id: null };
 };
 
-// Helper to fetch playlist items from YouTube (supports unlisted & public playlists)
+// Helper to fetch details for a single YouTube video
+export const fetchSingleVideoDetails = async (videoId) => {
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`;
+    const res = await axios.get(oembedUrl, { timeout: 5000 });
+    const title = res.data?.title || "Contest Recording";
+    return {
+      videoId,
+      title: title.trim(),
+      duration: "",
+      url: `https://www.youtube.com/watch?v=${videoId}`,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}`,
+      thumbnailUrl: res.data?.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      publishedAt: null,
+    };
+  } catch (err) {
+    return {
+      videoId,
+      title: "Contest Recording",
+      duration: "",
+      url: `https://www.youtube.com/watch?v=${videoId}`,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}`,
+      thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      publishedAt: null,
+    };
+  }
+};
+
+// Helper to fetch playlist items from YouTube (supports unlisted & public playlists, new lockupViewModel & legacy playlistVideoRenderer)
 export const fetchPlaylistVideos = async (playlistId) => {
+  if (!playlistId) return [];
+
+  const cached = playlistCache.get(playlistId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.entries;
+  }
+
   const entries = [];
   const seenIds = new Set();
 
+  const addEntry = ({ videoId, title, duration, thumb, publishedAt }) => {
+    if (!videoId || seenIds.has(videoId)) return;
+    seenIds.add(videoId);
+    let cleanTitle = (title || `Video ${videoId}`).trim();
+    cleanTitle = cleanTitle
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+
+    entries.push({
+      videoId,
+      title: cleanTitle,
+      duration: (duration || "").trim(),
+      url: `https://www.youtube.com/watch?v=${videoId}`,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}`,
+      thumbnailUrl: thumb || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      publishedAt: publishedAt || null,
+    });
+  };
+
   // 1. Try fetching via YouTube Playlist Webpage (ytInitialData parser - works for unlisted playlists & videos)
+  let pageHtml = "";
   try {
     const pageUrl = `https://www.youtube.com/playlist?list=${playlistId}`;
     const pageRes = await axios.get(pageUrl, {
-      timeout: 9000,
+      timeout: 10000,
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9",
       },
     });
+    pageHtml = pageRes.data || "";
 
-    const html = pageRes.data;
-    const match = html.match(/var ytInitialData = ({.*?});<\/script>/s) || html.match(/ytInitialData\s*=\s*({.+?});/s);
-    if (match) {
-      const data = JSON.parse(match[1]);
-      const extractFromRenderer = (obj) => {
+    // Extract ytInitialData safely
+    let data = null;
+    const startMarker = "ytInitialData = ";
+    const startIdx = pageHtml.indexOf(startMarker);
+    if (startIdx !== -1) {
+      const jsonStart = startIdx + startMarker.length;
+      const scriptEnd = pageHtml.indexOf("</script>", jsonStart);
+      if (scriptEnd !== -1) {
+        let jsonStr = pageHtml.substring(jsonStart, scriptEnd).trim();
+        if (jsonStr.endsWith(";")) jsonStr = jsonStr.slice(0, -1);
+        try {
+          data = JSON.parse(jsonStr);
+        } catch (e) {}
+      }
+    }
+
+    if (!data) {
+      const match = pageHtml.match(/var ytInitialData = ({.*?});<\/script>/s) || pageHtml.match(/ytInitialData\s*=\s*({.+?});/s);
+      if (match) {
+        try {
+          data = JSON.parse(match[1]);
+        } catch (e) {}
+      }
+    }
+
+    if (data) {
+      const extractRecursive = (obj) => {
         if (!obj || typeof obj !== "object") return;
+
+        // Modern Lockup View Model
+        if (obj.lockupViewModel) {
+          const l = obj.lockupViewModel;
+          const videoId = l.contentId || l.rendererContext?.commandContext?.onTap?.innertubeCommand?.watchEndpoint?.videoId;
+          if (videoId) {
+            const title =
+              l.metadata?.lockupMetadataViewModel?.title?.content ||
+              l.rendererContext?.accessibilityContext?.label ||
+              `Video ${videoId}`;
+
+            let duration = "";
+            const overlays = l.contentImage?.thumbnailViewModel?.overlays || [];
+            for (const ov of overlays) {
+              const badgeText = ov.thumbnailBottomOverlayViewModel?.badges?.[0]?.thumbnailBadgeViewModel?.text;
+              if (badgeText) {
+                duration = badgeText;
+                break;
+              }
+              if (ov.thumbnailOverlayTimeStatusRenderer?.text?.simpleText) {
+                duration = ov.thumbnailOverlayTimeStatusRenderer.text.simpleText;
+                break;
+              }
+            }
+
+            const thumbSources = l.contentImage?.thumbnailViewModel?.image?.sources;
+            const thumb = thumbSources && thumbSources.length > 0
+              ? thumbSources[thumbSources.length - 1].url
+              : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+            addEntry({ videoId, title, duration, thumb });
+          }
+          return;
+        }
+
+        // Classic Playlist Video Renderer
         if (obj.playlistVideoRenderer) {
           const p = obj.playlistVideoRenderer;
           const videoId = p.videoId;
-          if (videoId && !seenIds.has(videoId)) {
-            seenIds.add(videoId);
+          if (videoId) {
             const title =
               p.title?.runs?.[0]?.text ||
               p.title?.simpleText ||
               (p.title?.accessibility?.accessibilityData?.label ? p.title.accessibility.accessibilityData.label.split(" by ")[0] : `Video ${videoId}`);
-            const duration = p.lengthText?.simpleText || "";
+            const duration = p.lengthText?.simpleText || (p.lengthSeconds ? `${p.lengthSeconds}s` : "");
             const thumb =
               p.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
               `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-            entries.push({
-              videoId,
-              title: title.trim(),
-              duration,
-              url: `https://www.youtube.com/watch?v=${videoId}`,
-              embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}`,
-              thumbnailUrl: thumb,
-              publishedAt: null,
-            });
+            addEntry({ videoId, title, duration, thumb });
           }
           return;
         }
+
+        // Compact / Grid / Video Renderers
+        if (obj.compactVideoRenderer || obj.gridVideoRenderer || obj.videoRenderer) {
+          const v = obj.compactVideoRenderer || obj.gridVideoRenderer || obj.videoRenderer;
+          const videoId = v.videoId;
+          if (videoId) {
+            const title = v.title?.runs?.[0]?.text || v.title?.simpleText || `Video ${videoId}`;
+            const duration = v.lengthText?.simpleText || "";
+            const thumb = v.thumbnail?.thumbnails?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+            addEntry({ videoId, title, duration, thumb });
+          }
+          return;
+        }
+
         for (const k of Object.keys(obj)) {
-          extractFromRenderer(obj[k]);
+          extractRecursive(obj[k]);
         }
       };
 
-      extractFromRenderer(data);
+      extractRecursive(data);
     }
   } catch (pageErr) {
-    console.error("ytInitialData scraper failed for playlist:", pageErr.message);
+    console.error(`ytInitialData scraper failed for playlist ${playlistId}:`, pageErr.message);
   }
 
-  // 2. If nothing found, try Atom XML feed
+  // 2. Direct Regex Fallback from page HTML (if JSON parsing missed items)
+  if (entries.length === 0 && pageHtml) {
+    try {
+      const regex = /\"videoId\":\"([a-zA-Z0-9_-]{11})\"/g;
+      let match;
+      const htmlVideoIds = [];
+      while ((match = regex.exec(pageHtml)) !== null) {
+        if (!seenIds.has(match[1])) {
+          htmlVideoIds.push(match[1]);
+        }
+      }
+      for (const vid of htmlVideoIds) {
+        addEntry({
+          videoId: vid,
+          title: `Recording ${vid}`,
+          duration: "",
+          thumb: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
+        });
+      }
+    } catch (regexErr) {
+      console.error(`Regex extraction failed for playlist ${playlistId}:`, regexErr.message);
+    }
+  }
+
+  // 3. Atom XML Feed Fallback
   if (entries.length === 0) {
     try {
       const feedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${playlistId}`;
@@ -108,35 +258,25 @@ export const fetchPlaylistVideos = async (playlistId) => {
 
         if (videoIdMatch && videoIdMatch[1]) {
           const videoId = videoIdMatch[1].trim();
-          if (!seenIds.has(videoId)) {
-            seenIds.add(videoId);
-            let title = titleMatch && titleMatch[1] ? titleMatch[1].trim() : `Video ${videoId}`;
-            title = title
-              .replace(/&amp;/g, "&")
-              .replace(/&lt;/g, "<")
-              .replace(/&gt;/g, ">")
-              .replace(/&quot;/g, '"')
-              .replace(/&#39;/g, "'");
-
-            entries.push({
-              videoId,
-              title,
-              url: `https://www.youtube.com/watch?v=${videoId}`,
-              embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}`,
-              thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-              publishedAt: publishedMatch ? publishedMatch[1] : null,
-            });
-          }
+          let title = titleMatch && titleMatch[1] ? titleMatch[1].trim() : `Video ${videoId}`;
+          addEntry({
+            videoId,
+            title,
+            duration: "",
+            thumb: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            publishedAt: publishedMatch ? publishedMatch[1] : null,
+          });
         }
       }
     } catch (feedErr) {
-      console.error("Failed to fetch YouTube playlist XML feed:", feedErr.message);
+      // Feed error ignored
     }
   }
 
   // Sort naturally by title (e.g. TFC-1, TFC-2, TFC-10)
   entries.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }));
 
+  playlistCache.set(playlistId, { timestamp: Date.now(), entries });
   return entries;
 };
 
@@ -257,16 +397,8 @@ router.get("/tfc/participants/:id", async (req, res) => {
     if (ytInfo.type === "playlist") {
       videos = await fetchPlaylistVideos(ytInfo.id);
     } else if (ytInfo.type === "video") {
-      videos = [
-        {
-          videoId: ytInfo.id,
-          title: "Contest Recording",
-          url: `https://www.youtube.com/watch?v=${ytInfo.id}`,
-          embedUrl: `https://www.youtube-nocookie.com/embed/${ytInfo.id}`,
-          thumbnailUrl: `https://i.ytimg.com/vi/${ytInfo.id}/hqdefault.jpg`,
-          publishedAt: participant.createdAt,
-        },
-      ];
+      const singleVid = await fetchSingleVideoDetails(ytInfo.id);
+      videos = [singleVid];
     }
 
     // Fetch reports for this participant to compute per-video report counts

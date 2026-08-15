@@ -3,9 +3,11 @@ import cors from "cors";
 import dotenv from "dotenv";
 import adminRoutes from "../server/src/routes/admin.js";
 import adminVjudgeRoutes from "../server/src/routes/adminVjudge.js";
+import adminTfcRoutes from "../server/src/routes/adminTfc.js";
 import standingsRoutes from "../server/src/routes/standings.js";
 import vjudgeRoutes from "../server/src/routes/vjudge.js";
 import requestRoutes from "../server/src/routes/requests.js";
+import tfcRoutes from "../server/src/routes/tfc.js";
 import { connectDb } from "../server/src/config/db.js";
 import { Admin } from "../server/src/models/Admin.js";
 import { Passkey } from "../server/src/models/Passkey.js";
@@ -55,9 +57,11 @@ app.get("/api/health", async (req, res) => {
 
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminVjudgeRoutes);
+app.use("/api/admin", adminTfcRoutes);
 app.use("/api", standingsRoutes);
 app.use("/api", vjudgeRoutes);
 app.use("/api", requestRoutes);
+app.use("/api", tfcRoutes);
 
 // Cron-triggered refresh endpoint (used by Vercel cron)
 app.get("/api/cron/refresh", async (req, res) => {

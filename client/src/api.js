@@ -159,4 +159,102 @@ export const updatePasskey = async (payload) => {
   return data;
 };
 
+// ─── TFC Public API ──────────────────────────────────────────────────────────
+export const getTfcStandings = async (params) => {
+  const { data } = await api.get("/tfc/standings", { params });
+  return data;
+};
+
+export const getTfcParticipants = async () => {
+  const { data } = await api.get("/tfc/participants");
+  return data;
+};
+
+export const getTfcParticipant = async (id) => {
+  const { data } = await api.get(`/tfc/participants/${id}`);
+  return data;
+};
+
+export const submitTfcRequest = async (payload) => {
+  const { data } = await api.post("/tfc/request", payload);
+  return data;
+};
+
+export const submitTfcReport = async (payload) => {
+  const { data } = await api.post("/tfc/reports", payload);
+  return data;
+};
+
+// ─── TFC Admin API ───────────────────────────────────────────────────────────
+export const getAdminTfcRequests = async () => {
+  const { data } = await api.get("/admin/tfc/requests");
+  return data;
+};
+
+export const approveAdminTfcRequest = async (id) => {
+  const { data } = await api.post(`/admin/tfc/requests/${id}/approve`);
+  return data;
+};
+
+export const rejectAdminTfcRequest = async (id) => {
+  const { data } = await api.post(`/admin/tfc/requests/${id}/reject`);
+  return data;
+};
+
+export const getAdminTfcParticipants = async () => {
+  const { data } = await api.get("/admin/tfc/participants");
+  return data;
+};
+
+export const createAdminTfcParticipant = async (payload) => {
+  const { data } = await api.post("/admin/tfc/participants", payload);
+  return data;
+};
+
+export const updateAdminTfcParticipant = async (id, payload) => {
+  const { data } = await api.patch(`/admin/tfc/participants/${id}`, payload);
+  return data;
+};
+
+export const deleteAdminTfcParticipant = async (id) => {
+  const { data } = await api.delete(`/admin/tfc/participants/${id}`);
+  return data;
+};
+
+export const getAdminTfcContests = async () => {
+  const { data } = await api.get("/admin/tfc/contests");
+  return data;
+};
+
+export const createAdminTfcContest = async (payload) => {
+  const { data } = await api.post("/admin/tfc/contests", payload);
+  return data;
+};
+
+export const updateAdminTfcContest = async (id, payload) => {
+  const { data } = await api.patch(`/admin/tfc/contests/${id}`, payload);
+  return data;
+};
+
+export const deleteAdminTfcContest = async (id) => {
+  const { data } = await api.delete(`/admin/tfc/contests/${id}`);
+  return data;
+};
+
+export const getAdminTfcReports = async () => {
+  const { data } = await api.get("/admin/tfc/reports");
+  return data;
+};
+
+export const updateAdminTfcReport = async (id, payload) => {
+  const { data } = await api.patch(`/admin/tfc/reports/${id}`, payload);
+  return data;
+};
+
+export const deleteAdminTfcReport = async (id) => {
+  const { data } = await api.delete(`/admin/tfc/reports/${id}`);
+  return data;
+};
+
+
 /* WQ2LDzMUdnmNOGns */

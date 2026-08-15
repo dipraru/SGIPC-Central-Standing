@@ -5,8 +5,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import adminRoutes from "./routes/admin.js";
 import adminVjudgeRoutes from "./routes/adminVjudge.js";
+import adminTfcRoutes from "./routes/adminTfc.js";
 import standingsRoutes from "./routes/standings.js";
 import vjudgeRoutes from "./routes/vjudge.js";
+import tfcRoutes from "./routes/tfc.js";
 import requestRoutes from "./routes/requests.js";
 import { connectDb } from "./config/db.js";
 import { Admin } from "./models/Admin.js";
@@ -31,8 +33,10 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminVjudgeRoutes);
+app.use("/api/admin", adminTfcRoutes);
 app.use("/api", standingsRoutes);
 app.use("/api", vjudgeRoutes);
+app.use("/api", tfcRoutes);
 app.use("/api", requestRoutes);
 
 // Serve static files from React app

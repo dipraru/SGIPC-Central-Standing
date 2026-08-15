@@ -22,6 +22,20 @@ import {
   approveRequest,
   rejectRequest,
   updatePasskey,
+  getAdminTfcRequests,
+  approveAdminTfcRequest,
+  rejectAdminTfcRequest,
+  getAdminTfcParticipants,
+  createAdminTfcParticipant,
+  updateAdminTfcParticipant,
+  deleteAdminTfcParticipant,
+  getAdminTfcContests,
+  createAdminTfcContest,
+  updateAdminTfcContest,
+  deleteAdminTfcContest,
+  getAdminTfcReports,
+  updateAdminTfcReport,
+  deleteAdminTfcReport,
 } from "../api.js";
 import { BatchSelect } from "../components/BatchSelect.jsx";
 import { computeBatchOptions, SortIcon } from "./Standings.jsx";
@@ -90,6 +104,35 @@ const AdminDashboard = () => {
   const [requestDetailModal, setRequestDetailModal] = useState(null); // request object | null
   const [deleteModal, setDeleteModal] = useState(null); // { type: 'handle' | 'team' | 'contest', id: string, name: string } | null
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // ─── TFC States ────────────────────────────────────────────────────────────
+  const [tfcSubtab, setTfcSubtab] = useState("requests");
+  const [tfcRequests, setTfcRequests] = useState([]);
+  const [tfcParticipants, setTfcParticipants] = useState([]);
+  const [tfcContests, setTfcContests] = useState([]);
+  const [tfcReports, setTfcReports] = useState([]);
+  const [tfcLoading, setTfcLoading] = useState(false);
+  const [tfcError, setTfcError] = useState("");
+
+  const [addTfcPartModalOpen, setAddTfcPartModalOpen] = useState(false);
+  const [tfcPartName, setTfcPartName] = useState("");
+  const [tfcPartRoll, setTfcPartRoll] = useState("");
+  const [tfcPartBatch, setTfcPartBatch] = useState("");
+  const [tfcPartHandles, setTfcPartHandles] = useState([""]);
+  const [tfcPartCf, setTfcPartCf] = useState("");
+  const [tfcPartPlaylist, setTfcPartPlaylist] = useState("");
+  const [isAddingTfcPart, setIsAddingTfcPart] = useState(false);
+  const [tfcPartError, setTfcPartError] = useState("");
+
+  const [addTfcContestModalOpen, setAddTfcContestModalOpen] = useState(false);
+  const [tfcContestIdInput, setTfcContestIdInput] = useState("");
+  const [tfcContestTitleInput, setTfcContestTitleInput] = useState("");
+  const [isAddingTfcContest, setIsAddingTfcContest] = useState(false);
+
+  const [tfcRequestDetailModal, setTfcRequestDetailModal] = useState(null);
+  const [tfcReportDetailModal, setTfcReportDetailModal] = useState(null);
+  const [approvingTfcRequestId, setApprovingTfcRequestId] = useState(null);
+  const [rejectingTfcRequestId, setRejectingTfcRequestId] = useState(null);
 
   // Editing states
   const [editingHandleId, setEditingHandleId] = useState(null);
@@ -275,10 +318,32 @@ const AdminDashboard = () => {
     }
   };
 
+  const loadTfc = async () => {
+    try {
+      setTfcLoading(true);
+      const [reqs, parts, conts, reps] = await Promise.all([
+        getAdminTfcRequests(),
+        getAdminTfcParticipants(),
+        getAdminTfcContests(),
+        getAdminTfcReports(),
+      ]);
+      setTfcRequests(reqs || []);
+      setTfcParticipants(parts || []);
+      setTfcContests(conts || []);
+      setTfcReports(reps || []);
+      setTfcError("");
+    } catch (err) {
+      if (!handleAuthError(err)) setTfcError("Failed to load TFC data.");
+    } finally {
+      setTfcLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadHandles();
     loadVjudge();
     loadRequests();
+    loadTfc();
   }, []);
 
   // ── Create Handle ──────────────────────────────────────────────────────────
@@ -379,6 +444,24 @@ const AdminDashboard = () => {
         await deleteVjudgeContest(id);
         setVjudgeContests((prev) => prev.filter((c) => (c._id || c.id) !== id && String(c.contestId) !== String(id)));
         await loadVjudge();
+      } else if (type === "tfc_participant") {
+        await deleteAdminTfcParticipant(id);
+        setTfcParticipants((prev) => prev.filter((p) => (p._id || p.id) !== id && p.roll !== id));
+        await loadTfc();
+      } else if (type === "tfc_contest") {
+        await deleteAdminTfcContest(id);
+        setTfcContests((prev) => prev.filter((c) => (c._id || c.id) !== id && String(c.contestId) !== String(id)));
+        await loadTfc();
+      } else if (type === "tfc_report") {
+        await deleteAdminTfcReport(id);
+        setTfcReports((prev) => prev.filter((r) => (r._id || r.id) !== id));
+        await loadTfc();
+      } else if (type === "request") {
+        await rejectRequest(id);
+        await loadRequests();
+      } else if (type === "tfc_request") {
+        await rejectAdminTfcRequest(id);
+        await loadTfc();
       }
       setDeleteModal(null);
     } catch (err) {
@@ -387,6 +470,93 @@ const AdminDashboard = () => {
       }
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  // ── TFC Action Handlers ───────────────────────────────────────────────────
+  const handleApproveTfcRequest = async (id) => {
+    setApprovingTfcRequestId(id);
+    try {
+      await approveAdminTfcRequest(id);
+      await loadTfc();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to approve TFC request.");
+    } finally {
+      setApprovingTfcRequestId(null);
+    }
+  };
+
+  const handleRejectTfcRequest = async (id) => {
+    setRejectingTfcRequestId(id);
+    try {
+      await rejectAdminTfcRequest(id);
+      await loadTfc();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to reject TFC request.");
+    } finally {
+      setRejectingTfcRequestId(null);
+    }
+  };
+
+  const handleCreateTfcParticipant = async () => {
+    setTfcPartError("");
+    if (!tfcPartName.trim() || !tfcPartRoll.trim() || !tfcPartBatch.trim()) {
+      return setTfcPartError("Name, roll, and batch are required.");
+    }
+    const cleanHandles = tfcPartHandles.map((h) => h.trim()).filter(Boolean);
+    if (!cleanHandles.length) {
+      return setTfcPartError("At least one VJudge handle is required.");
+    }
+    setIsAddingTfcPart(true);
+    try {
+      await createAdminTfcParticipant({
+        name: tfcPartName.trim(),
+        roll: tfcPartRoll.trim(),
+        batch: tfcPartBatch.trim().toUpperCase(),
+        vjudgeHandles: cleanHandles,
+        codeforcesHandle: tfcPartCf.trim(),
+        playlistUrl: tfcPartPlaylist.trim(),
+      });
+      setTfcPartName("");
+      setTfcPartRoll("");
+      setTfcPartBatch("");
+      setTfcPartHandles([""]);
+      setTfcPartCf("");
+      setTfcPartPlaylist("");
+      setAddTfcPartModalOpen(false);
+      await loadTfc();
+    } catch (err) {
+      setTfcPartError(err?.response?.data?.message || "Failed to add participant.");
+    } finally {
+      setIsAddingTfcPart(false);
+    }
+  };
+
+  const handleCreateTfcContest = async () => {
+    if (!tfcContestIdInput.trim()) return;
+    setIsAddingTfcContest(true);
+    try {
+      await createAdminTfcContest({
+        contestId: tfcContestIdInput.trim(),
+        title: tfcContestTitleInput.trim(),
+      });
+      setTfcContestIdInput("");
+      setTfcContestTitleInput("");
+      setAddTfcContestModalOpen(false);
+      await loadTfc();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to add TFC contest.");
+    } finally {
+      setIsAddingTfcContest(false);
+    }
+  };
+
+  const handleUpdateReportStatus = async (id, status) => {
+    try {
+      await updateAdminTfcReport(id, { status });
+      await loadTfc();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to update report status.");
     }
   };
 
@@ -555,6 +725,14 @@ const AdminDashboard = () => {
           {requestsCount > 0 && (
             <span style={{ marginLeft: 6, background: "var(--danger)", color: "#fff", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>
               {requestsCount}
+            </span>
+          )}
+        </button>
+        <button className={`tab ${activeTab === "tfc" ? "active" : ""}`} onClick={() => switchTab("tfc")}>
+          🎯 TFC Corner
+          {(tfcRequests.filter((r) => r.status === "pending").length > 0 || tfcReports.filter((r) => r.status === "pending").length > 0) && (
+            <span style={{ marginLeft: 6, background: "var(--danger)", color: "#fff", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>
+              {tfcRequests.filter((r) => r.status === "pending").length + tfcReports.filter((r) => r.status === "pending").length}
             </span>
           )}
         </button>
@@ -1053,10 +1231,16 @@ const AdminDashboard = () => {
                         </button>
                         <button
                           className="danger sm"
-                          onClick={() => handleRejectRequest(reqItem._id)}
+                          onClick={() =>
+                            setDeleteModal({
+                              type: "request",
+                              id: reqItem._id,
+                              name: reqItem.type === "team" ? `Team: ${reqItem.teamName}` : `${reqItem.name || reqItem.handle} (${reqItem.handle})`,
+                            })
+                          }
                           disabled={approvingRequestId === reqItem._id || rejectingRequestId === reqItem._id}
                         >
-                          {rejectingRequestId === reqItem._id ? "Rejecting…" : "Reject"}
+                          Reject
                         </button>
                         {requestSuccessId === reqItem._id && <span style={{ color: "var(--success)", fontWeight: 600, fontSize: 12 }}>✓ Done</span>}
                       </div>
@@ -1065,6 +1249,367 @@ const AdminDashboard = () => {
                 ))}
               </tbody>
             </table>
+          )}
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          TFC CORNER MANAGEMENT TAB
+          ════════════════════════════════════════════════════════════════════ */}
+      {activeTab === "tfc" && (
+        <div className="card">
+          <div className="card-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
+            <div>
+              <h2>TFC Corner Management</h2>
+              <p className="card-subtitle">Manage TFC contestant requests, participants, contests &amp; anonymous reports</p>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="secondary sm" onClick={loadTfc}>↻ Refresh TFC</button>
+              {tfcSubtab === "participants" && (
+                <button className="primary sm" onClick={() => setAddTfcPartModalOpen(true)}>＋ Add Participant</button>
+              )}
+              {tfcSubtab === "contests" && (
+                <button className="primary sm" onClick={() => setAddTfcContestModalOpen(true)}>＋ Add Contest</button>
+              )}
+            </div>
+          </div>
+
+          {/* Subtabs */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 18, borderBottom: "1px solid var(--border)", paddingBottom: 12, flexWrap: "wrap" }}>
+            {[
+              { id: "requests", label: "📥 Requests", count: tfcRequests.filter((r) => r.status === "pending").length },
+              { id: "participants", label: "👥 Participants", count: tfcParticipants.length },
+              { id: "contests", label: "🏆 Contests", count: tfcContests.length },
+              { id: "reports", label: "🚩 Reports", count: tfcReports.filter((r) => r.status === "pending").length },
+            ].map((sub) => {
+              const active = tfcSubtab === sub.id;
+              return (
+                <button
+                  key={sub.id}
+                  onClick={() => setTfcSubtab(sub.id)}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "var(--radius)",
+                    fontSize: 13,
+                    fontWeight: active ? 700 : 500,
+                    background: active ? "var(--primary)" : "var(--bg-subtle)",
+                    color: active ? "#ffffff" : "var(--text-secondary)",
+                    border: `1px solid ${active ? "var(--primary)" : "var(--border)"}`,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <span>{sub.label}</span>
+                  {sub.count > 0 && (
+                    <span style={{
+                      background: active ? "#ffffff" : "var(--primary)",
+                      color: active ? "var(--primary)" : "#ffffff",
+                      borderRadius: 999,
+                      padding: "1px 6px",
+                      fontSize: 10,
+                      fontWeight: 800,
+                    }}>
+                      {sub.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {tfcLoading && <div className="empty-state"><div className="loading-spinner" /><p>Loading TFC data...</p></div>}
+          {!tfcLoading && tfcError && <div className="notice error">{tfcError}</div>}
+
+          {/* Subtab 1: TFC Requests */}
+          {!tfcLoading && tfcSubtab === "requests" && (
+            <div>
+              {tfcRequests.filter((r) => r.status === "pending").length === 0 ? (
+                <div className="empty-state"><p>🎉 No pending TFC requests.</p></div>
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Contestant</th>
+                      <th>Roll &amp; Batch</th>
+                      <th>Handles</th>
+                      <th>Recordings Link</th>
+                      <th style={{ width: 180, textAlign: "right" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tfcRequests.filter((r) => r.status === "pending").map((reqItem) => (
+                      <tr key={reqItem._id}>
+                        <td>
+                          <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{reqItem.name}</div>
+                        </td>
+                        <td>
+                          <div style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>
+                            {reqItem.roll} · <span className="badge" style={{ padding: "1px 6px", fontSize: 11 }}>{normalizeBatch(reqItem.batch) || reqItem.batch}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: 12 }}>
+                            {reqItem.codeforcesHandle && <div>CF: <strong>{reqItem.codeforcesHandle}</strong></div>}
+                            {reqItem.vjudgeHandles && reqItem.vjudgeHandles.length > 0 && (
+                              <div style={{ color: "var(--text-muted)", marginTop: 2 }}>
+                                VJ: {reqItem.vjudgeHandles.join(", ")}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          {reqItem.playlistUrl ? (
+                            <a href={reqItem.playlistUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "var(--primary)", textDecoration: "none" }}>
+                              Playlist Link ↗
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>None</span>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                            <button
+                              className="success sm"
+                              onClick={() => handleApproveTfcRequest(reqItem._id)}
+                              disabled={approvingTfcRequestId === reqItem._id || rejectingTfcRequestId === reqItem._id}
+                            >
+                              {approvingTfcRequestId === reqItem._id ? "Approving…" : "Approve"}
+                            </button>
+                            <button
+                              className="danger sm"
+                              onClick={() =>
+                                setDeleteModal({
+                                  type: "tfc_request",
+                                  id: reqItem._id,
+                                  name: `TFC Request from ${reqItem.name} (${reqItem.roll})`,
+                                })
+                              }
+                              disabled={approvingTfcRequestId === reqItem._id || rejectingTfcRequestId === reqItem._id}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {/* Subtab 2: TFC Participants */}
+          {!tfcLoading && tfcSubtab === "participants" && (
+            <div>
+              {tfcParticipants.length === 0 ? (
+                <div className="empty-state"><p>No TFC participants added yet.</p></div>
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Contestant</th>
+                      <th>Roll</th>
+                      <th>Batch</th>
+                      <th>Handles</th>
+                      <th>Recordings</th>
+                      <th style={{ width: 100, textAlign: "right" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tfcParticipants.map((p) => (
+                      <tr key={p._id}>
+                        <td><strong style={{ color: "var(--text-primary)" }}>{p.name}</strong></td>
+                        <td style={{ fontFamily: "var(--font-mono)" }}>{p.roll}</td>
+                        <td><span className="badge" style={{ padding: "2px 6px", fontSize: 11 }}>{normalizeBatch(p.batch) || p.batch}</span></td>
+                        <td>
+                          <div style={{ fontSize: 12 }}>
+                            {p.codeforcesHandle && <div>CF: {p.codeforcesHandle}</div>}
+                            {p.vjudgeHandles && p.vjudgeHandles.length > 0 && (
+                              <div style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                                VJ: {p.vjudgeHandles.join(", ")}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          {p.playlistUrl ? (
+                            <a href={p.playlistUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "var(--primary)" }}>
+                              View Playlist ↗
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>None</span>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                            <button
+                              className="danger xs"
+                              onClick={() => setDeleteModal({ type: "tfc_participant", id: p._id, name: p.name })}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {/* Subtab 3: TFC Contests */}
+          {!tfcLoading && tfcSubtab === "contests" && (
+            <div>
+              {tfcContests.length === 0 ? (
+                <div className="empty-state"><p>No TFC contests added yet.</p></div>
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 110 }}>Contest ID</th>
+                      <th>Title</th>
+                      <th style={{ width: 100 }}>Status</th>
+                      <th style={{ width: 100, textAlign: "right" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tfcContests.map((c) => {
+                      const isEnabled = c.enabled !== false;
+                      return (
+                        <tr key={c._id}>
+                          <td style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>{c.contestId}</td>
+                          <td><strong>{c.title || `TFC Contest #${c.contestId}`}</strong></td>
+                          <td>
+                            <button
+                              className={isEnabled ? "success xs" : "secondary xs"}
+                              style={{
+                                padding: "3px 10px",
+                                borderRadius: "999px",
+                                fontWeight: 600,
+                                fontSize: 11,
+                                background: isEnabled ? "var(--success-light)" : "var(--bg-subtle)",
+                                color: isEnabled ? "var(--success)" : "var(--text-muted)",
+                                border: `1px solid ${isEnabled ? "var(--success)" : "var(--border)"}`,
+                                cursor: "pointer",
+                              }}
+                              onClick={async () => {
+                                try {
+                                  await updateAdminTfcContest(c._id, { enabled: !isEnabled });
+                                  await loadTfc();
+                                } catch (err) {
+                                  alert("Failed to toggle contest status.");
+                                }
+                              }}
+                            >
+                              {isEnabled ? "● Enabled" : "○ Disabled"}
+                            </button>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                              <button
+                                className="danger xs"
+                                onClick={() => setDeleteModal({ type: "tfc_contest", id: c._id, name: c.title || `Contest #${c.contestId}` })}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {/* Subtab 4: Anonymous Video Reports */}
+          {!tfcLoading && tfcSubtab === "reports" && (
+            <div>
+              {tfcReports.length === 0 ? (
+                <div className="empty-state"><p>🎉 No anonymous video reports received.</p></div>
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Status</th>
+                      <th>Contestant</th>
+                      <th>Video &amp; Category</th>
+                      <th>Explanation &amp; Timestamps</th>
+                      <th style={{ width: 140, textAlign: "right" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tfcReports.map((rep) => (
+                      <tr key={rep._id}>
+                        <td>
+                          <span style={{
+                            display: "inline-block",
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            textTransform: "capitalize",
+                            background: rep.status === "resolved" ? "var(--success-light)" : rep.status === "reviewed" ? "var(--info-light)" : "var(--danger-light)",
+                            color: rep.status === "resolved" ? "var(--success)" : rep.status === "reviewed" ? "var(--info)" : "var(--danger)",
+                            border: `1px solid ${rep.status === "resolved" ? "var(--success-border)" : rep.status === "reviewed" ? "var(--info-border)" : "var(--danger-border)"}`,
+                          }}>
+                            {rep.status}
+                          </span>
+                        </td>
+                        <td>
+                          <strong>{rep.participantName}</strong>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                            Roll: {rep.participantRoll}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text-primary)" }}>
+                            {rep.videoTitle || "Contest Recording"}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                            Tag: <em>{rep.category}</em>
+                          </div>
+                          {rep.videoUrl && (
+                            <a href={rep.videoUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--primary)" }}>
+                              Watch Video ↗
+                            </a>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ fontSize: 12, color: "var(--text-secondary)", maxWidth: 300, lineHeight: 1.4 }}>
+                            {rep.explanation}
+                          </div>
+                          <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>
+                            Reported: {new Date(rep.createdAt).toLocaleString()}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                            {rep.status === "pending" && (
+                              <button className="primary xs" onClick={() => handleUpdateReportStatus(rep._id, "reviewed")}>
+                                Reviewed
+                              </button>
+                            )}
+                            {rep.status !== "resolved" && (
+                              <button className="success xs" onClick={() => handleUpdateReportStatus(rep._id, "resolved")}>
+                                Resolve
+                              </button>
+                            )}
+                            <button className="danger xs" onClick={() => setDeleteModal({ type: "tfc_report", id: rep._id, name: `Report for ${rep.participantName}` })}>
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -1438,16 +1983,19 @@ const AdminDashboard = () => {
           <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 style={{ color: "var(--danger)", display: "flex", alignItems: "center", gap: 8 }}>
-                <span>⚠️</span> Confirm Delete
+                <span>⚠️</span> Confirm {deleteModal.type.includes("request") ? "Reject Request" : "Delete"}
               </h2>
               <button className="modal-close" onClick={() => !isDeleting && setDeleteModal(null)}>×</button>
             </div>
             <div className="modal-body">
               <p style={{ margin: "0 0 12px", fontSize: 15, color: "var(--text-primary)", fontWeight: 500 }}>
-                Are you sure you want to delete <strong style={{ color: "var(--primary)" }}>{deleteModal.name}</strong>?
+                Are you sure you want to {deleteModal.type.includes("request") ? "reject and remove the request for" : "delete"}{" "}
+                <strong style={{ color: "var(--primary)" }}>{deleteModal.name}</strong>?
               </p>
               <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>
-                This will permanently remove this {deleteModal.type} and its associated records from SGIPC Standings. This action cannot be undone.
+                {deleteModal.type.includes("request")
+                  ? "This will reject this registration request and remove it from the pending list. This action cannot be undone."
+                  : `This will permanently remove this ${deleteModal.type.replace("tfc_", "TFC ")} and its associated records from SGIPC Standings. This action cannot be undone.`}
               </p>
             </div>
             <div className="modal-footer">
@@ -1460,7 +2008,97 @@ const AdminDashboard = () => {
                 disabled={isDeleting}
                 style={{ minWidth: 100, fontWeight: 700 }}
               >
-                {isDeleting ? "Deleting…" : "Delete"}
+                {isDeleting ? "Processing…" : deleteModal.type.includes("request") ? "Reject Request" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: ADD TFC PARTICIPANT
+          ════════════════════════════════════════════════════════════════════ */}
+      {addTfcPartModalOpen && (
+        <div className="modal-overlay" onClick={() => setAddTfcPartModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Add TFC Participant</h2>
+              <button className="modal-close" onClick={() => setAddTfcPartModalOpen(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              {tfcPartError && <div className="notice error" style={{ marginBottom: 12 }}>{tfcPartError}</div>}
+              <div style={{ display: "grid", gap: 12 }}>
+                <div className="field">
+                  <label>Full Name *</label>
+                  <input type="text" value={tfcPartName} onChange={(e) => setTfcPartName(e.target.value)} placeholder="Full Name" />
+                </div>
+                <div className="field">
+                  <label>Roll Number *</label>
+                  <input type="text" value={tfcPartRoll} onChange={(e) => setTfcPartRoll(e.target.value)} placeholder="Roll Number" />
+                </div>
+                <div className="field">
+                  <label>Batch *</label>
+                  <BatchSelect
+                    value={tfcPartBatch}
+                    onChange={setTfcPartBatch}
+                    options={formBatchOptions}
+                    placeholder="Select Batch *"
+                  />
+                </div>
+                <div className="field">
+                  <label>VJudge Handle(s) *</label>
+                  <input
+                    type="text"
+                    value={tfcPartHandles.join(", ")}
+                    onChange={(e) => setTfcPartHandles(e.target.value.split(",").map((s) => s.trim()))}
+                    placeholder="comma-separated handles"
+                  />
+                </div>
+                <div className="field">
+                  <label>Codeforces Handle</label>
+                  <input type="text" value={tfcPartCf} onChange={(e) => setTfcPartCf(e.target.value)} placeholder="CF handle" />
+                </div>
+                <div className="field">
+                  <label>YouTube Playlist Link</label>
+                  <input type="url" value={tfcPartPlaylist} onChange={(e) => setTfcPartPlaylist(e.target.value)} placeholder="https://youtube.com/playlist?list=..." />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setAddTfcPartModalOpen(false)}>Cancel</button>
+              <button className="primary" onClick={handleCreateTfcParticipant} disabled={isAddingTfcPart}>
+                {isAddingTfcPart ? "Adding…" : "Add Participant"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: ADD TFC CONTEST
+          ════════════════════════════════════════════════════════════════════ */}
+      {addTfcContestModalOpen && (
+        <div className="modal-overlay" onClick={() => setAddTfcContestModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Add TFC Contest</h2>
+              <button className="modal-close" onClick={() => setAddTfcContestModalOpen(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: "grid", gap: 12 }}>
+                <div className="field">
+                  <label>VJudge Contest ID *</label>
+                  <input type="number" value={tfcContestIdInput} onChange={(e) => setTfcContestIdInput(e.target.value)} placeholder="e.g. 598123" />
+                </div>
+                <div className="field">
+                  <label>Contest Title (Optional)</label>
+                  <input type="text" value={tfcContestTitleInput} onChange={(e) => setTfcContestTitleInput(e.target.value)} placeholder="Auto-fetched from VJudge if blank" />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setAddTfcContestModalOpen(false)}>Cancel</button>
+              <button className="primary" onClick={handleCreateTfcContest} disabled={isAddingTfcContest}>
+                {isAddingTfcContest ? "Adding…" : "Add Contest"}
               </button>
             </div>
           </div>
@@ -1471,3 +2109,4 @@ const AdminDashboard = () => {
 };
 
 export default AdminDashboard;
+

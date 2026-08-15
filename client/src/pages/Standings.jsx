@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { Link } from "react-router-dom";
 import {
   getStandings,
   getVjudgeStandings,
@@ -45,9 +46,8 @@ export const computeBatchOptions = (standings = [], teamStandings = [], inactive
     digitsSet.add(nextBatch);
     batchNumbers = Array.from(digitsSet);
   } else {
-    const currYear = new Date().getFullYear() % 100;
-    const nextYear = currYear + 1;
-    batchNumbers = [nextYear, currYear, currYear - 1, currYear - 2, currYear - 3, currYear - 4];
+    // Default fallback from known batches in system
+    batchNumbers = [25, 24, 23, 22, 21, 20];
   }
 
   // Sort descending: most recent batches at top
@@ -483,16 +483,24 @@ const Standings = () => {
 
       {/* ── HERO ──────────────────────────────────────────────────────────── */}
       <div className="hero">
-        <div className="hero-inner">
+        <div className="hero-inner" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <span className="badge">SGIPC · Competitive Programming</span>
             <h1>Practice <span className="accent">Standings</span></h1>
             <p>Live rankings from Codeforces practice &amp; VJudge contests</p>
-            <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
               <button className="primary sm" onClick={openRequestModal}>＋ Request to Join</button>
             </div>
           </div>
-          <img src="/logo.png" alt="SGIPC" className="hero-logo" />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 16 }}>
+            <Link to="/tfc" className="tfc-corner-btn-red" title="Go to Team Formation Contest Corner">
+              <span>Go to TFC Corner</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z" />
+              </svg>
+            </Link>
+            <img src="/logo.png" alt="SGIPC" className="hero-logo" />
+          </div>
         </div>
       </div>
 

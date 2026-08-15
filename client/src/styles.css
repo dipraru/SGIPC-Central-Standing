@@ -563,6 +563,21 @@ select option { background: #fff; }
 }
 .batch-tag:hover { background: var(--primary-border); }
 
+.batch-select-wrapper {
+  width: 100%;
+}
+.batch-custom-input-wrap input {
+  animation: fadeIn 0.15s ease;
+  border-color: var(--primary-border);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.batch-custom-input-wrap input:focus {
+  border-color: var(--primary);
+  background: var(--bg-white);
+}
+
 /* ═══════════════════════════════════════════════
    MODALS
    ═══════════════════════════════════════════════ */

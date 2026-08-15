@@ -13,8 +13,6 @@ const router = express.Router();
 router.get("/vjudge/standings", async (req, res) => {
   const contests = await VjudgeContest.find({ enabled: true }).lean();
   const teams = await VjudgeTeam.find().lean();
-  const config = await VjudgeConfig.findOne().lean();
-  const eloMode = config?.eloMode || "normal";
   const errors = [];
 
   if (!contests.length || !teams.length) {
@@ -22,7 +20,12 @@ router.get("/vjudge/standings", async (req, res) => {
       contests: [],
       teams: [],
       standings: [],
-      eloMode,
+      standingsByType: {
+        normal: [],
+        "gain-only": [],
+        "zero-participation": [],
+      },
+      errors: [],
     });
   }
 
@@ -48,24 +51,39 @@ router.get("/vjudge/standings", async (req, res) => {
 
   const validContests = contestPayloads.filter(Boolean);
   const teamGroups = buildTeamGroups(teams);
-  const standings = buildEloStandings(validContests, teamGroups, eloMode);
-
-  // Attach member aliases and members from DB to each standings row
   const teamById = new Map(teams.map((t) => [t._id.toString(), t]));
-  const standingsWithMembers = standings.map((row) => {
-    const dbTeam = teamById.get(row.id);
-    return {
-      ...row,
-      aliases: dbTeam?.aliases || [],
-      members: dbTeam?.members || [],
-    };
-  });
+
+  const enrich = (rows) =>
+    rows.map((row) => {
+      const dbTeam = teamById.get(row.id);
+      return {
+        ...row,
+        aliases: dbTeam?.aliases || [],
+        members: dbTeam?.members || [],
+      };
+    });
+
+  const normalStandings = enrich(buildEloStandings(validContests, teamGroups, "normal"));
+  const gainOnlyStandings = enrich(buildEloStandings(validContests, teamGroups, "gain-only"));
+  const zeroPartStandings = enrich(buildEloStandings(validContests, teamGroups, "zero-participation"));
+
+  const requestedType = req.query.type || req.query.mode || "normal";
+  const activeStandings =
+    requestedType === "gain-only"
+      ? gainOnlyStandings
+      : requestedType === "zero-participation"
+      ? zeroPartStandings
+      : normalStandings;
 
   return res.json({
     contests,
     teams,
-    standings: standingsWithMembers,
-    eloMode,
+    standings: activeStandings,
+    standingsByType: {
+      normal: normalStandings,
+      "gain-only": gainOnlyStandings,
+      "zero-participation": zeroPartStandings,
+    },
     errors,
   });
 });

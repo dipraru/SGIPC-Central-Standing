@@ -33,7 +33,8 @@ export const updateHandle = async (id, payload) => {
 };
 
 export const deleteHandle = async (id) => {
-  await api.delete(`/admin/handles/${id}`);
+  const { data } = await api.delete(`/admin/handles/${id}`);
+  return data;
 };
 
 export const forceRefreshHandle = async (id) => {
@@ -77,7 +78,18 @@ export const updateVjudgeTeam = async (id, payload) => {
 };
 
 export const deleteVjudgeTeam = async (id) => {
-  await api.delete(`/admin/vjudge/teams/${id}`);
+  const { data } = await api.delete(`/admin/vjudge/teams/${id}`);
+  return data;
+};
+
+export const refreshVjudgeTeam = async (id) => {
+  const { data } = await api.post(`/admin/vjudge/teams/${id}/refresh`);
+  return data;
+};
+
+export const refreshAllVjudgeContests = async () => {
+  const { data } = await api.post("/admin/vjudge/refresh-all");
+  return data;
 };
 
 export const getVjudgeContests = async () => {
@@ -96,7 +108,8 @@ export const updateVjudgeContest = async (id, payload) => {
 };
 
 export const deleteVjudgeContest = async (id) => {
-  await api.delete(`/admin/vjudge/contests/${id}`);
+  const { data } = await api.delete(`/admin/vjudge/contests/${id}`);
+  return data;
 };
 
 export const getVjudgeConfig = async () => {

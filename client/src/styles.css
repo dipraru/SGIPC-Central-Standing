@@ -859,3 +859,284 @@ select option { background: #fff; }
   .tabs { gap: 1px; }
   .tab { padding: 8px 10px; font-size: 12px; }
 }
+
+/* ═══════════════════════════════════════════════
+   TFC CORNER & DIRECTORY STYLES (LIGHT THEME)
+   ═══════════════════════════════════════════════ */
+.tfc-corner-btn-red {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
+  color: #ffffff !important;
+  padding: 9px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 14px rgba(127, 29, 29, 0.45);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+.tfc-corner-btn-red:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(127, 29, 29, 0.65);
+  background: linear-gradient(135deg, #7f1d1d 0%, #581c87 0%, #831843 100%, #7f1d1d 100%);
+  background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%);
+}
+.tfc-corner-btn-red svg {
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.tfc-corner-btn-red:hover svg {
+  transform: translateX(3px) scale(1.1);
+}
+
+.tfc-dir-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.tfc-dir-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  width: 100%;
+}
+.tfc-dir-card:hover {
+  border-color: var(--primary);
+  background: var(--bg-subtle);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.1);
+}
+.tfc-dir-card-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.tfc-dir-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.1) 0%, rgba(59, 130, 246, 0.18) 100%);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  border: 1px solid rgba(37, 99, 235, 0.15);
+}
+.tfc-dir-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tfc-dir-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tfc-dir-arrow {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 18px;
+  font-weight: 800;
+  transition: all 0.2s ease;
+  background: var(--bg-subtle);
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+.tfc-dir-card:hover .tfc-dir-arrow {
+  background: var(--primary);
+  color: #ffffff;
+  transform: translateX(3px);
+}
+
+/* Video Viewer Hub (Light Theme) */
+.tfc-video-hub-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 22px;
+  align-items: start;
+}
+@media (max-width: 1024px) {
+  .tfc-video-hub-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tfc-player-box {
+  background: #ffffff;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.tfc-iframe-container {
+  position: relative;
+  width: 100%;
+  padding-top: 56.25%; /* 16:9 Aspect Ratio */
+  background: #0f172a;
+}
+.tfc-iframe-container iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.tfc-player-footer {
+  padding: 16px 20px;
+  background: var(--bg-white);
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tfc-playlist-panel {
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  max-height: 640px;
+}
+.tfc-playlist-header {
+  padding: 14px 18px;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tfc-playlist-items {
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tfc-video-card-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle, #f1f5f9);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: var(--bg-white);
+  align-items: center;
+}
+.tfc-video-card-item:hover {
+  background: var(--bg-subtle);
+  border-color: var(--border);
+}
+.tfc-video-card-item.active {
+  background: var(--primary-light);
+  border-color: var(--primary-border);
+}
+.tfc-video-thumb {
+  width: 90px;
+  height: 54px;
+  border-radius: var(--radius);
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #0f172a;
+}
+.tfc-video-card-item.active .tfc-video-thumb {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* Form structure */
+.tfc-form-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Flag button with report count badge */
+.tfc-flag-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  color: var(--danger, #ef4444);
+}
+.tfc-flag-btn:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  transform: scale(1.05);
+}
+.tfc-flag-badge {
+  position: absolute;
+  top: -6px;
+  right: -7px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  line-height: 1;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.5);
+  border: 2px solid var(--bg-white, #ffffff);
+  pointer-events: none;
+  font-family: var(--font-mono, monospace);
+}
+
+
+

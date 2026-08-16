@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { getTfcParticipant, submitTfcReport } from "../api.js";
 
 const extractBatchDigits = (b) => { const m = (b || "").match(/(\d{2})$/); return m ? m[1] : null; };
@@ -7,6 +7,16 @@ const normalizeBatch = (b) => { const d = extractBatchDigits(b); return d ? `2K$
 
 const TfcVideoViewer = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
+
+  const handleBack = (e) => {
+    if (e) e.preventDefault();
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate("/tfc");
+    }
+  };
   const [participant, setParticipant] = useState(null);
   const [videos, setVideos] = useState([]);
   const [ytInfo, setYtInfo] = useState(null);
@@ -119,7 +129,7 @@ const TfcVideoViewer = () => {
       <div className="container" style={{ paddingTop: 40 }}>
         <div className="notice error">{error || "Contestant not found."}</div>
         <div style={{ marginTop: 20 }}>
-          <Link to="/tfc" className="secondary sm">← Back to TFC Corner</Link>
+          <Link to="/tfc" onClick={handleBack} className="secondary sm">← Back to TFC Corner</Link>
         </div>
       </div>
     );
@@ -130,7 +140,7 @@ const TfcVideoViewer = () => {
       {/* ── BREADCRUMB & BACK ────────────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-muted)" }}>
-          <Link to="/tfc" style={{ color: "var(--primary)", textDecoration: "none", fontWeight: 600 }}>
+          <Link to="/tfc" onClick={handleBack} style={{ color: "var(--primary)", textDecoration: "none", fontWeight: 600 }}>
             ← TFC Corner
           </Link>
           <span>/</span>
@@ -311,7 +321,7 @@ const TfcVideoViewer = () => {
           )}
 
           <div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-            <Link to="/tfc" className="secondary sm">
+            <Link to="/tfc" onClick={handleBack} className="secondary sm">
               ← Back to TFC Corner
             </Link>
             {participant.playlistUrl && participant.playlistUrl !== "N/A" && (

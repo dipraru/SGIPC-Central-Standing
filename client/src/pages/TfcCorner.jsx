@@ -9,12 +9,46 @@ import {
 import { BatchSelect } from "../components/BatchSelect.jsx";
 import { computeBatchOptions, SortIcon } from "./Standings.jsx";
 
-const TFC_TAB_KEY = "sgipc_tfc_tab";
-const getInitialTfcTab = () => {
-  try { return sessionStorage.getItem(TFC_TAB_KEY) || "standings"; } catch { return "standings"; }
+// In-memory module cache to enable instant zero-flicker rehydration on back-navigation
+let memTfcStandings = null;
+let memTfcParticipants = null;
+let memTfcContests = null;
+
+const TFC_STATE_KEYS = {
+  tab: "sgipc_tfc_tab",
+  type: "sgipc_tfc_type",
+  batches: "sgipc_tfc_batches",
+  search: "sgipc_tfc_search",
+  sortField: "sgipc_tfc_sort_field",
+  sortDir: "sgipc_tfc_sort_dir",
+  scrollStandings: "sgipc_tfc_scroll_standings",
+  scrollDirectory: "sgipc_tfc_scroll_directory",
 };
+
+const getInitialTfcTab = () => {
+  try { return sessionStorage.getItem(TFC_STATE_KEYS.tab) || "standings"; } catch { return "standings"; }
+};
+const getInitialSelectedType = () => {
+  try { return sessionStorage.getItem(TFC_STATE_KEYS.type) || "normal"; } catch { return "normal"; }
+};
+const getInitialSelectedBatches = () => {
+  try {
+    const raw = sessionStorage.getItem(TFC_STATE_KEYS.batches);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+};
+const getInitialSearchQuery = () => {
+  try { return sessionStorage.getItem(TFC_STATE_KEYS.search) || ""; } catch { return ""; }
+};
+const getInitialSortField = () => {
+  try { return sessionStorage.getItem(TFC_STATE_KEYS.sortField) || "rank"; } catch { return "rank"; }
+};
+const getInitialSortDir = () => {
+  try { return sessionStorage.getItem(TFC_STATE_KEYS.sortDir) || "asc"; } catch { return "asc"; }
+};
+
 const saveTfcTab = (tab) => {
-  try { sessionStorage.setItem(TFC_TAB_KEY, tab); } catch {}
+  try { sessionStorage.setItem(TFC_STATE_KEYS.tab, tab); } catch {}
 };
 
 const TFC_RANKING_TYPES = [
@@ -42,28 +76,76 @@ const normalizeBatch = (b) => { const d = extractBatchDigits(b); return d ? `2K$
 const TfcCorner = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(getInitialTfcTab);
-  const switchTab = (t) => { setActiveTab(t); saveTfcTab(t); };
+  const isRestoringScrollRef = React.useRef(true);
+
+  const switchTab = (t) => {
+    setActiveTab(t);
+    saveTfcTab(t);
+    isRestoringScrollRef.current = true;
+  };
 
   // ── Standings data ─────────────────────────────────────────────────────────
-  const [standings, setStandings] = useState([]);
-  const [standingsMap, setStandingsMap] = useState({ normal: [], "gain-only": [], "zero-participation": [] });
-  const [contests, setContests] = useState([]);
-  const [selectedType, setSelectedType] = useState("normal");
-  const [loading, setLoading] = useState(true);
+  const [standings, setStandings] = useState(() => memTfcStandings?.standings || []);
+  const [standingsMap, setStandingsMap] = useState(() => memTfcStandings?.standingsByType || { normal: [], "gain-only": [], "zero-participation": [] });
+  const [contests, setContests] = useState(() => memTfcContests || []);
+  const [selectedType, setSelectedType] = useState(getInitialSelectedType);
+  const [loading, setLoading] = useState(() => !memTfcStandings);
   const [error, setError] = useState("");
 
   // ── Participants directory data ────────────────────────────────────────────
-  const [participants, setParticipants] = useState([]);
-  const [participantsLoading, setParticipantsLoading] = useState(false);
+  const [participants, setParticipants] = useState(() => memTfcParticipants || []);
+  const [participantsLoading, setParticipantsLoading] = useState(() => !memTfcParticipants);
 
   // ── Modals & filters ───────────────────────────────────────────────────────
   const [contestsModalOpen, setContestsModalOpen] = useState(false);
-  const [selectedBatches, setSelectedBatches] = useState([]);
+  const [selectedBatches, setSelectedBatches] = useState(getInitialSelectedBatches);
   const [batchFilterOpen, setBatchFilterOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(getInitialSearchQuery);
 
-  const [sortField, setSortField] = useState("rank");
-  const [sortDir, setSortDir] = useState("asc");
+  const [sortField, setSortField] = useState(getInitialSortField);
+  const [sortDir, setSortDir] = useState(getInitialSortDir);
+
+  // Sync state changes to sessionStorage
+  useEffect(() => {
+    try { sessionStorage.setItem(TFC_STATE_KEYS.type, selectedType); } catch {}
+  }, [selectedType]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(TFC_STATE_KEYS.batches, JSON.stringify(selectedBatches)); } catch {}
+  }, [selectedBatches]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(TFC_STATE_KEYS.search, searchQuery); } catch {}
+  }, [searchQuery]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(TFC_STATE_KEYS.sortField, sortField); } catch {}
+  }, [sortField]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem(TFC_STATE_KEYS.sortDir, sortDir); } catch {}
+  }, [sortDir]);
+
+  // Track scroll position per tab
+  useEffect(() => {
+    const handleScroll = () => {
+      if (isRestoringScrollRef.current) return;
+      try {
+        const key = activeTab === "directory" ? TFC_STATE_KEYS.scrollDirectory : TFC_STATE_KEYS.scrollStandings;
+        sessionStorage.setItem(key, String(window.scrollY));
+      } catch {}
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [activeTab]);
+
+  const goToContestant = (id) => {
+    try {
+      const key = activeTab === "directory" ? TFC_STATE_KEYS.scrollDirectory : TFC_STATE_KEYS.scrollStandings;
+      sessionStorage.setItem(key, String(window.scrollY));
+    } catch {}
+    navigate(`/tfc/contestant/${id}`);
+  };
 
   // ── Registration Modal State ───────────────────────────────────────────────
   const [formModalOpen, setFormModalOpen] = useState(false);
@@ -83,8 +165,10 @@ const TfcCorner = () => {
   // Fetch TFC Standings
   const fetchStandings = useCallback(async () => {
     try {
-      setLoading(true);
+      if (!memTfcStandings) setLoading(true);
       const data = await getTfcStandings();
+      memTfcStandings = data;
+      memTfcContests = data.contests || [];
       if (data.standingsByType) {
         setStandingsMap(data.standingsByType);
       }
@@ -92,7 +176,7 @@ const TfcCorner = () => {
       setContests(data.contests || []);
       setError("");
     } catch (err) {
-      setError("Unable to load TFC standings.");
+      if (!memTfcStandings) setError("Unable to load TFC standings.");
     } finally {
       setLoading(false);
     }
@@ -101,8 +185,9 @@ const TfcCorner = () => {
   // Fetch TFC Participants
   const fetchParticipants = useCallback(async () => {
     try {
-      setParticipantsLoading(true);
+      if (!memTfcParticipants) setParticipantsLoading(true);
       const data = await getTfcParticipants();
+      memTfcParticipants = data || [];
       setParticipants(data || []);
     } catch (err) {
       console.error(err);
@@ -126,7 +211,9 @@ const TfcCorner = () => {
 
   const availableBatches = useMemo(() => {
     const s = new Set();
-    const source = activeTab === "standings" ? (standingsMap[selectedType] || standings) : participants;
+    const source = activeTab === "standings"
+      ? (standingsMap[selectedType] || standings).slice(0, 10)
+      : participants;
     source.forEach((r) => {
       const b = normalizeBatch(r.batch);
       if (b) s.add(b);
@@ -138,10 +225,12 @@ const TfcCorner = () => {
     });
   }, [activeTab, standingsMap, selectedType, standings, participants]);
 
-  // Filtered standings
+  // Filtered standings — strictly only global top 10 contestants
   const displayedStandings = useMemo(() => {
     const rawList = standingsMap[selectedType] || standings;
-    let list = rawList.slice();
+    // Only the participants that are globally in top 10 are visible
+    const top10 = rawList.slice(0, 10);
+    let list = top10.slice();
 
     if (selectedBatches.length > 0) {
       list = list.filter((r) => {
@@ -203,6 +292,30 @@ const TfcCorner = () => {
     }
     return list;
   }, [participants, selectedBatches, searchQuery]);
+
+  // Restore scroll position after data has finished rendering
+  useEffect(() => {
+    const key = activeTab === "directory" ? TFC_STATE_KEYS.scrollDirectory : TFC_STATE_KEYS.scrollStandings;
+    const isDataLoaded = activeTab === "directory"
+      ? (!participantsLoading && participants.length > 0)
+      : (!loading && displayedStandings.length > 0);
+
+    if (isDataLoaded && isRestoringScrollRef.current) {
+      const savedY = parseInt(sessionStorage.getItem(key) || "0", 10);
+      if (savedY > 0) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.scrollTo({ top: savedY, behavior: "instant" });
+            setTimeout(() => {
+              isRestoringScrollRef.current = false;
+            }, 80);
+          });
+        });
+      } else {
+        isRestoringScrollRef.current = false;
+      }
+    }
+  }, [activeTab, loading, displayedStandings.length, participantsLoading, participants.length]);
 
   const handleSortClick = (field) => {
     if (sortField === field) {
@@ -539,7 +652,7 @@ const TfcCorner = () => {
                     <td data-label="Videos" style={{ textAlign: "center" }}>
                       <button
                         className="secondary xs"
-                        onClick={() => navigate(`/tfc/contestant/${row.id}`)}
+                        onClick={() => goToContestant(row.id)}
                         style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 600 }}
                       >
                         🎥 Recordings &gt;
@@ -630,7 +743,7 @@ const TfcCorner = () => {
                 <div
                   key={p._id}
                   className="tfc-dir-card"
-                  onClick={() => navigate(`/tfc/contestant/${p._id}`)}
+                  onClick={() => goToContestant(p._id)}
                 >
                   <div className="tfc-dir-card-left">
                     <div className="tfc-dir-icon">📁</div>

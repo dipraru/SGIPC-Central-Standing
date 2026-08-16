@@ -398,6 +398,11 @@ export const buildEloStandings = (contestPayloads, teamGroups, mode = "normal") 
       }
     });
 
+    // Normalize K by (N-1) so total rating change per contest is bounded
+    // regardless of participant count (~±K max swing per contest)
+    const n = ordered.length;
+    const effectiveK = ELO_K_FACTOR / Math.max(n - 1, 1);
+
     for (let i = 0; i < ordered.length; i++) {
       for (let j = i + 1; j < ordered.length; j++) {
         const teamA = ensureTeam(ordered[i].group);
@@ -418,12 +423,23 @@ export const buildEloStandings = (contestPayloads, teamGroups, mode = "normal") 
           teamB.losses += 1;
         }
 
-        let deltaA = ELO_K_FACTOR * (scoreA - expectedA);
-        let deltaB = ELO_K_FACTOR * (scoreB - expectedB);
+        let deltaA = effectiveK * (scoreA - expectedA);
+        let deltaB = effectiveK * (scoreB - expectedB);
 
+        // gain-only: dampen losses to 25% instead of eliminating them
+        // to prevent infinite rating inflation while staying encouraging
         if (eloMode === "gain-only") {
-          if (deltaA < 0) deltaA = 0;
-          if (deltaB < 0) deltaB = 0;
+          if (deltaA < 0) deltaA *= 0.25;
+          if (deltaB < 0) deltaB *= 0.25;
+        }
+
+        // zero-participation: absent teams receive only 50% of their
+        // normal loss — less harsh than full last-place treatment
+        if (eloMode === "zero-participation") {
+          const isAbsentA = ordered[i].rank === Number.MAX_SAFE_INTEGER;
+          const isAbsentB = ordered[j].rank === Number.MAX_SAFE_INTEGER;
+          if (isAbsentA && deltaA < 0) deltaA *= 0.5;
+          if (isAbsentB && deltaB < 0) deltaB *= 0.5;
         }
 
         teamA.rating += deltaA;

@@ -264,7 +264,7 @@ const findTeamRecord = (teamName, ranklist, participants = {}) => {
   return null;
 };
 
-const findBestGroupMatch = (teamGroup, ranklist, participants = {}) => {
+export const findBestGroupMatch = (teamGroup, ranklist, participants = {}) => {
   if (!teamGroup) return null;
   let bestEntry = null;
   let bestAlias = null;
@@ -355,8 +355,15 @@ export const buildEloStandings = (contestPayloads, teamGroups, mode = "normal") 
   for (const contestData of contestPayloads) {
     if (!contestData?.ranklist) continue;
 
+    const isExcludedForGroup = (group) => {
+      if (!group?.excludedContests?.length) return false;
+      return group.excludedContests.some((id) => Number(id) === Number(contestData.contestId));
+    };
+
     const condensed = new Map();
     for (const group of teamGroups) {
+      if (isExcludedForGroup(group)) continue;
+
       const match = findBestGroupMatch(group, contestData.ranklist, contestData.participants);
       const rankValue = Number(match?.entry?.rank);
       if (!Number.isFinite(rankValue)) continue;
@@ -373,20 +380,21 @@ export const buildEloStandings = (contestPayloads, teamGroups, mode = "normal") 
     let ordered = Array.from(condensed.values()).sort((a, b) => a.rank - b.rank);
 
     if (!ordered.length && eloMode === "zero-participation") {
-      ordered = teamGroups.map((group) => ({ group, rank: Number.MAX_SAFE_INTEGER }));
+      ordered = teamGroups
+        .filter((group) => !isExcludedForGroup(group))
+        .map((group) => ({ group, rank: Number.MAX_SAFE_INTEGER }));
     }
 
-    if (eloMode === "zero-participation")
-      {
-        const present = new Set(ordered.map((item) => item.group.id));
-        teamGroups.forEach((group) => {
-          if (!present.has(group.id)) {
-            ordered.push({ group, rank: Number.MAX_SAFE_INTEGER });
-            present.add(group.id);
-          }
-        });
-        ordered = ordered.sort((a, b) => a.rank - b.rank);
-      }
+    if (eloMode === "zero-participation") {
+      const present = new Set(ordered.map((item) => item.group.id));
+      teamGroups.forEach((group) => {
+        if (!present.has(group.id) && !isExcludedForGroup(group)) {
+          ordered.push({ group, rank: Number.MAX_SAFE_INTEGER });
+          present.add(group.id);
+        }
+      });
+      ordered = ordered.sort((a, b) => a.rank - b.rank);
+    }
 
     const seenThisContest = new Set();
 

@@ -5,6 +5,7 @@ import { TfcParticipant } from "../models/TfcParticipant.js";
 import { TfcContest } from "../models/TfcContest.js";
 import { TfcRequest } from "../models/TfcRequest.js";
 import { TfcReport } from "../models/TfcReport.js";
+import { TfcConfig } from "../models/TfcConfig.js";
 import { Passkey } from "../models/Passkey.js";
 import { buildEloStandings, fetchContestRank } from "../services/vjudge.js";
 
@@ -287,6 +288,9 @@ router.get("/tfc/standings", async (req, res) => {
     const participants = await TfcParticipant.find().lean();
     const errors = [];
 
+    const tfcConfig = await TfcConfig.findOne().lean();
+    const topNLimit = typeof tfcConfig?.topNLimit === "number" ? tfcConfig.topNLimit : 10;
+
     if (!contests.length || !participants.length) {
       return res.json({
         contests: [],
@@ -297,6 +301,7 @@ router.get("/tfc/standings", async (req, res) => {
           "gain-only": [],
           "zero-participation": [],
         },
+        topNLimit,
         errors: [],
       });
     }
@@ -326,6 +331,7 @@ router.get("/tfc/standings", async (req, res) => {
       id: p._id.toString(),
       displayName: p.name,
       aliases: (p.vjudgeHandles || []).filter(Boolean),
+      excludedContests: p.excludedContests || [],
     }));
 
     const partById = new Map(participants.map((p) => [p._id.toString(), p]));
@@ -341,6 +347,7 @@ router.get("/tfc/standings", async (req, res) => {
           codeforcesHandle: p?.codeforcesHandle || "",
           otherOjs: p?.otherOjs || [],
           playlistUrl: p?.playlistUrl || "",
+          excludedContests: p?.excludedContests || [],
         };
       });
 
@@ -365,6 +372,7 @@ router.get("/tfc/standings", async (req, res) => {
         "gain-only": gainOnlyStandings,
         "zero-participation": zeroPartStandings,
       },
+      topNLimit,
       errors,
     });
   } catch (err) {

@@ -5,7 +5,8 @@ import { TfcParticipant } from "../models/TfcParticipant.js";
 import { TfcContest } from "../models/TfcContest.js";
 import { TfcRequest } from "../models/TfcRequest.js";
 import { TfcReport } from "../models/TfcReport.js";
-import { fetchContestRank } from "../services/vjudge.js";
+import { TfcConfig } from "../models/TfcConfig.js";
+import { fetchContestRank, findBestGroupMatch } from "../services/vjudge.js";
 
 const router = express.Router();
 
@@ -32,6 +33,48 @@ router.get("/tfc/requests", authRequired, async (req, res) => {
     return res.json(requests);
   } catch (err) {
     return res.status(500).json({ message: "Failed to fetch TFC requests" });
+  }
+});
+
+router.post("/tfc/requests/approve-all", authRequired, async (req, res) => {
+  try {
+    const pendingRequests = await TfcRequest.find({ status: "pending" });
+    if (!pendingRequests.length) {
+      return res.json({ message: "No pending requests to approve.", count: 0 });
+    }
+
+    let count = 0;
+    for (const request of pendingRequests) {
+      let participant = await TfcParticipant.findOne({ roll: request.roll });
+      if (participant) {
+        participant.name = request.name;
+        participant.batch = request.batch;
+        participant.vjudgeHandles = request.vjudgeHandles;
+        participant.codeforcesHandle = request.codeforcesHandle;
+        participant.otherOjs = request.otherOjs;
+        participant.playlistUrl = request.playlistUrl;
+        await participant.save();
+      } else {
+        await TfcParticipant.create({
+          name: request.name,
+          roll: request.roll,
+          batch: request.batch,
+          vjudgeHandles: request.vjudgeHandles,
+          codeforcesHandle: request.codeforcesHandle,
+          otherOjs: request.otherOjs,
+          playlistUrl: request.playlistUrl,
+        });
+      }
+      request.status = "approved";
+      request.approvedAt = new Date();
+      await request.save();
+      count++;
+    }
+
+    return res.json({ message: `Successfully approved all ${count} requests.`, count });
+  } catch (err) {
+    console.error("Approve all TFC requests error:", err);
+    return res.status(500).json({ message: "Failed to approve all requests" });
   }
 });
 
@@ -87,6 +130,119 @@ router.post("/tfc/requests/:id/reject", authRequired, async (req, res) => {
     return res.json({ message: "TFC request rejected" });
   } catch (err) {
     return res.status(500).json({ message: "Failed to reject request" });
+  }
+});
+
+// ── TFC Participation Matrix ────────────────────────────────────────────────
+router.get("/tfc/participation-matrix", authRequired, async (req, res) => {
+  try {
+    const contests = await TfcContest.find().sort({ contestId: 1 }).lean();
+    const participants = await TfcParticipant.find().sort({ batch: -1, roll: 1 }).lean();
+
+    // Fetch ranks for all contests in parallel
+    const contestRankData = await Promise.all(
+      contests.map(async (contest) => {
+        try {
+          const data = await fetchContestRank(contest.contestId);
+          if (data.error) return { contestId: contest.contestId, ranklist: null, error: data.error };
+          return {
+            contestId: contest.contestId,
+            ranklist: data.ranklist,
+            participants: data.participants,
+          };
+        } catch (e) {
+          return { contestId: contest.contestId, ranklist: null, error: e.message };
+        }
+      })
+    );
+
+    const rankDataMap = new Map(contestRankData.map((c) => [c.contestId, c]));
+
+    const matrix = participants.map((p) => {
+      const group = {
+        id: p._id.toString(),
+        displayName: p.name,
+        aliases: (p.vjudgeHandles || []).filter(Boolean),
+      };
+
+      const participationMap = {};
+      for (const contest of contests) {
+        const cRank = rankDataMap.get(contest.contestId);
+        if (!cRank || !cRank.ranklist) {
+          participationMap[contest.contestId] = {
+            participated: false,
+            rank: null,
+            solved: null,
+            penalty: null,
+          };
+          continue;
+        }
+
+        const match = findBestGroupMatch(group, cRank.ranklist, cRank.participants);
+        if (match?.entry) {
+          participationMap[contest.contestId] = {
+            participated: true,
+            rank: match.entry.rank,
+            solved: match.entry.solved,
+            penalty: match.entry.penalty,
+            handle: match.alias || match.entry.team_name,
+          };
+        } else {
+          participationMap[contest.contestId] = {
+            participated: false,
+            rank: null,
+            solved: null,
+            penalty: null,
+          };
+        }
+      }
+
+      return {
+        id: p._id,
+        name: p.name,
+        roll: p.roll,
+        batch: p.batch,
+        vjudgeHandles: p.vjudgeHandles || [],
+        playlistUrl: p.playlistUrl || "",
+        excludedContests: p.excludedContests || [],
+        participation: participationMap,
+      };
+    });
+
+    return res.json({ contests, matrix });
+  } catch (err) {
+    console.error("Participation matrix error:", err);
+    return res.status(500).json({ message: "Failed to load participation matrix" });
+  }
+});
+
+router.post("/tfc/participation-matrix/toggle", authRequired, async (req, res) => {
+  try {
+    const { participantId, contestId, excluded } = req.body;
+    if (!participantId || contestId === undefined) {
+      return res.status(400).json({ message: "participantId and contestId are required." });
+    }
+
+    const numContestId = Number(contestId);
+    let updateQuery;
+    if (excluded) {
+      updateQuery = { $addToSet: { excludedContests: numContestId } };
+    } else {
+      updateQuery = { $pull: { excludedContests: numContestId } };
+    }
+
+    const participant = await TfcParticipant.findByIdAndUpdate(participantId, updateQuery, { new: true });
+    if (!participant) {
+      return res.status(404).json({ message: "Participant not found" });
+    }
+
+    return res.json({
+      message: `Contest ${numContestId} ${excluded ? "excluded" : "included"} for ${participant.name}`,
+      participant,
+    });
+  } catch (err) {
+    console.error("Toggle participation error:", err);
+    return res.status(500).json({ message: "Failed to update participation setting" });
   }
 });
 
@@ -282,6 +438,33 @@ router.delete("/tfc/reports/:id", authRequired, async (req, res) => {
     return res.json({ message: "Report deleted successfully" });
   } catch (err) {
     return res.status(500).json({ message: "Failed to delete report" });
+// ── TFC Config ───────────────────────────────────────────────────────────────
+router.get("/tfc/config", authRequired, async (req, res) => {
+  try {
+    let config = await TfcConfig.findOne().lean();
+    if (!config) {
+      config = await TfcConfig.create({ topNLimit: 10 });
+    }
+    return res.json({ topNLimit: config.topNLimit || 10 });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch TFC config" });
+  }
+});
+
+router.patch("/tfc/config", authRequired, async (req, res) => {
+  try {
+    const { topNLimit } = req.body;
+    const limit = Math.max(0, parseInt(topNLimit, 10) || 10);
+    let config = await TfcConfig.findOne();
+    if (!config) {
+      config = await TfcConfig.create({ topNLimit: limit });
+    } else {
+      config.topNLimit = limit;
+      await config.save();
+    }
+    return res.json({ message: "TFC configuration updated successfully", topNLimit: config.topNLimit });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to update TFC config" });
   }
 });
 

@@ -22,8 +22,10 @@ import {
   approveRequest,
   rejectRequest,
   updatePasskey,
+  getTfcStandings,
   getAdminTfcRequests,
   approveAdminTfcRequest,
+  approveAllAdminTfcRequests,
   rejectAdminTfcRequest,
   getAdminTfcParticipants,
   createAdminTfcParticipant,
@@ -36,6 +38,10 @@ import {
   getAdminTfcReports,
   updateAdminTfcReport,
   deleteAdminTfcReport,
+  getAdminTfcParticipationMatrix,
+  toggleAdminTfcParticipation,
+  getAdminTfcConfig,
+  updateAdminTfcConfig,
 } from "../api.js";
 import { BatchSelect } from "../components/BatchSelect.jsx";
 import { computeBatchOptions, SortIcon } from "./Standings.jsx";
@@ -133,6 +139,30 @@ const AdminDashboard = () => {
   const [tfcReportDetailModal, setTfcReportDetailModal] = useState(null);
   const [approvingTfcRequestId, setApprovingTfcRequestId] = useState(null);
   const [rejectingTfcRequestId, setRejectingTfcRequestId] = useState(null);
+  const [isApprovingAllTfc, setIsApprovingAllTfc] = useState(false);
+
+  // Admin TFC Standings state
+  const [tfcStandingsData, setTfcStandingsData] = useState([]);
+  const [tfcStandingsMap, setTfcStandingsMap] = useState({ normal: [], "gain-only": [], "zero-participation": [] });
+  const [tfcStandingsType, setTfcStandingsType] = useState("normal");
+  const [tfcStandingsSearch, setTfcStandingsSearch] = useState("");
+  const [tfcStandingsBatches, setTfcStandingsBatches] = useState([]);
+  const [tfcStandingsBatchOpen, setTfcStandingsBatchOpen] = useState(false);
+  const [tfcStandingsSortField, setTfcStandingsSortField] = useState("rank");
+  const [tfcStandingsSortDir, setTfcStandingsSortDir] = useState("asc");
+
+  // Admin TFC Participation Matrix state
+  const [participationContests, setParticipationContests] = useState([]);
+  const [participationMatrix, setParticipationMatrix] = useState([]);
+  const [participationSearch, setParticipationSearch] = useState("");
+  const [participationBatches, setParticipationBatches] = useState([]);
+  const [participationBatchOpen, setParticipationBatchOpen] = useState(false);
+  const [togglingCell, setTogglingCell] = useState(null);
+
+  // Admin TFC User-View Top-N Limit Configuration
+  const [tfcTopNLimit, setTfcTopNLimit] = useState(10);
+  const [isSavingTfcConfig, setIsSavingTfcConfig] = useState(false);
+  const [tfcConfigToast, setTfcConfigToast] = useState("");
 
   // Editing states
   const [editingHandleId, setEditingHandleId] = useState(null);
@@ -321,16 +351,28 @@ const AdminDashboard = () => {
   const loadTfc = async () => {
     try {
       setTfcLoading(true);
-      const [reqs, parts, conts, reps] = await Promise.all([
-        getAdminTfcRequests(),
-        getAdminTfcParticipants(),
-        getAdminTfcContests(),
-        getAdminTfcReports(),
+      const [reqs, parts, conts, reps, standingsRes, matrixRes, configRes] = await Promise.all([
+        getAdminTfcRequests().catch(() => []),
+        getAdminTfcParticipants().catch(() => []),
+        getAdminTfcContests().catch(() => []),
+        getAdminTfcReports().catch(() => []),
+        getTfcStandings().catch(() => ({ standings: [], standingsByType: {} })),
+        getAdminTfcParticipationMatrix().catch(() => ({ contests: [], matrix: [] })),
+        getAdminTfcConfig().catch(() => ({ topNLimit: 10 })),
       ]);
       setTfcRequests(reqs || []);
       setTfcParticipants(parts || []);
       setTfcContests(conts || []);
       setTfcReports(reps || []);
+      if (typeof configRes?.topNLimit === "number") {
+        setTfcTopNLimit(configRes.topNLimit);
+      }
+      if (standingsRes?.standingsByType) {
+        setTfcStandingsMap(standingsRes.standingsByType);
+      }
+      setTfcStandingsData(standingsRes?.standings || []);
+      setParticipationContests(matrixRes?.contests || []);
+      setParticipationMatrix(matrixRes?.matrix || []);
       setTfcError("");
     } catch (err) {
       if (!handleAuthError(err)) setTfcError("Failed to load TFC data.");
@@ -497,6 +539,201 @@ const AdminDashboard = () => {
       setRejectingTfcRequestId(null);
     }
   };
+
+  const handleApproveAllTfcRequests = async () => {
+    const count = tfcRequests.filter((r) => r.status === "pending").length;
+    if (count === 0) return;
+    if (!window.confirm(`Are you sure you want to approve all ${count} pending TFC requests?`)) {
+      return;
+    }
+    setIsApprovingAllTfc(true);
+    try {
+      const res = await approveAllAdminTfcRequests();
+      await loadTfc();
+      alert(res?.message || `Approved all ${count} requests successfully.`);
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to approve all TFC requests.");
+    } finally {
+      setIsApprovingAllTfc(false);
+    }
+  };
+
+  const handleToggleParticipation = async (participantId, contestId, currentExcluded) => {
+    const cellKey = `${participantId}-${contestId}`;
+    if (togglingCell === cellKey) return;
+    setTogglingCell(cellKey);
+    const newExcluded = !currentExcluded;
+
+    // Optimistic update
+    setParticipationMatrix((prev) =>
+      prev.map((row) => {
+        if (row.id === participantId) {
+          const updatedEx = newExcluded
+            ? Array.from(new Set([...(row.excludedContests || []), Number(contestId)]))
+            : (row.excludedContests || []).filter((id) => Number(id) !== Number(contestId));
+          return { ...row, excludedContests: updatedEx };
+        }
+        return row;
+      })
+    );
+
+    try {
+      await toggleAdminTfcParticipation({
+        participantId,
+        contestId: Number(contestId),
+        excluded: newExcluded,
+      });
+      // Background reload standings
+      getTfcStandings().then((data) => {
+        if (data?.standingsByType) setTfcStandingsMap(data.standingsByType);
+        setTfcStandingsData(data?.standings || []);
+      }).catch(() => {});
+    } catch (err) {
+      // Revert optimistic update
+      setParticipationMatrix((prev) =>
+        prev.map((row) => {
+          if (row.id === participantId) {
+            const revertedEx = currentExcluded
+              ? Array.from(new Set([...(row.excludedContests || []), Number(contestId)]))
+              : (row.excludedContests || []).filter((id) => Number(id) !== Number(contestId));
+            return { ...row, excludedContests: revertedEx };
+          }
+          return row;
+        })
+      );
+      alert(err?.response?.data?.message || "Failed to update contest exclusion.");
+    } finally {
+      setTogglingCell(null);
+    }
+  };
+
+  const handleSaveTfcTopNLimit = async (limitVal) => {
+    const val = parseInt(limitVal, 10);
+    if (isNaN(val) || val < 0) {
+      return alert("Please enter a valid positive number or 0 for unlimited.");
+    }
+    setIsSavingTfcConfig(true);
+    setTfcConfigToast("");
+    try {
+      await updateAdminTfcConfig({ topNLimit: val });
+      setTfcTopNLimit(val);
+      setTfcConfigToast(`✓ User view limit saved: Top ${val > 0 ? val : "All"} participants will be shown.`);
+      setTimeout(() => setTfcConfigToast(""), 4000);
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to update TFC configuration.");
+    } finally {
+      setIsSavingTfcConfig(false);
+    }
+  };
+
+  const toggleTfcStandingsBatch = (b) => {
+    setTfcStandingsBatches((prev) =>
+      prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]
+    );
+  };
+
+  const toggleParticipationBatch = (b) => {
+    setParticipationBatches((prev) =>
+      prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]
+    );
+  };
+
+  // Available batches for Admin TFC Standings
+  const adminTfcStandingsBatches = useMemo(() => {
+    const s = new Set();
+    const list = tfcStandingsMap[tfcStandingsType] || tfcStandingsData;
+    list.forEach((r) => {
+      const b = normalizeBatch(r.batch);
+      if (b) s.add(b);
+    });
+    return Array.from(s).sort((a, b) => {
+      const na = parseInt(extractBatchDigits(a) || "0", 10);
+      const nb = parseInt(extractBatchDigits(b) || "0", 10);
+      return nb - na;
+    });
+  }, [tfcStandingsMap, tfcStandingsType, tfcStandingsData]);
+
+  // Displayed Full Standings for Admin (all participants!)
+  const displayedAdminTfcStandings = useMemo(() => {
+    const rawList = tfcStandingsMap[tfcStandingsType] || tfcStandingsData;
+    let list = rawList.slice();
+
+    if (tfcStandingsBatches.length > 0) {
+      list = list.filter((r) => {
+        const b = normalizeBatch(r.batch);
+        return b && tfcStandingsBatches.includes(b);
+      });
+    }
+
+    if (tfcStandingsSearch.trim()) {
+      const q = tfcStandingsSearch.trim().toLowerCase();
+      list = list.filter(
+        (r) =>
+          (r.name && r.name.toLowerCase().includes(q)) ||
+          (r.roll && r.roll.toLowerCase().includes(q)) ||
+          (r.codeforcesHandle && r.codeforcesHandle.toLowerCase().includes(q)) ||
+          (r.vjudgeHandles && r.vjudgeHandles.some((h) => h.toLowerCase().includes(q)))
+      );
+    }
+
+    list.sort((a, b) => {
+      let valA = a[tfcStandingsSortField];
+      let valB = b[tfcStandingsSortField];
+      if (tfcStandingsSortField === "rank" || tfcStandingsSortField === "contests") {
+        valA = Number(valA) || 0;
+        valB = Number(valB) || 0;
+      } else if (tfcStandingsSortField === "rating") {
+        valA = Number(a.rating) || 0;
+        valB = Number(b.rating) || 0;
+      } else {
+        valA = String(valA || "").toLowerCase();
+        valB = String(valB || "").toLowerCase();
+      }
+      if (valA < valB) return tfcStandingsSortDir === "asc" ? -1 : 1;
+      if (valA > valB) return tfcStandingsSortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return list;
+  }, [tfcStandingsMap, tfcStandingsType, tfcStandingsData, tfcStandingsBatches, tfcStandingsSearch, tfcStandingsSortField, tfcStandingsSortDir]);
+
+  // Available batches for Participation Matrix
+  const adminParticipationBatches = useMemo(() => {
+    const s = new Set();
+    participationMatrix.forEach((r) => {
+      const b = normalizeBatch(r.batch);
+      if (b) s.add(b);
+    });
+    return Array.from(s).sort((a, b) => {
+      const na = parseInt(extractBatchDigits(a) || "0", 10);
+      const nb = parseInt(extractBatchDigits(b) || "0", 10);
+      return nb - na;
+    });
+  }, [participationMatrix]);
+
+  // Displayed Participation Matrix
+  const displayedParticipationMatrix = useMemo(() => {
+    let list = participationMatrix.slice();
+
+    if (participationBatches.length > 0) {
+      list = list.filter((r) => {
+        const b = normalizeBatch(r.batch);
+        return b && participationBatches.includes(b);
+      });
+    }
+
+    if (participationSearch.trim()) {
+      const q = participationSearch.trim().toLowerCase();
+      list = list.filter(
+        (r) =>
+          (r.name && r.name.toLowerCase().includes(q)) ||
+          (r.roll && r.roll.toLowerCase().includes(q)) ||
+          (r.vjudgeHandles && r.vjudgeHandles.some((h) => h.toLowerCase().includes(q)))
+      );
+    }
+
+    return list;
+  }, [participationMatrix, participationBatches, participationSearch]);
 
   const handleCreateTfcParticipant = async () => {
     setTfcPartError("");
@@ -1261,10 +1498,20 @@ const AdminDashboard = () => {
           <div className="card-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
             <div>
               <h2>TFC Corner Management</h2>
-              <p className="card-subtitle">Manage TFC contestant requests, participants, contests &amp; anonymous reports</p>
+              <p className="card-subtitle">Manage TFC contestant requests, full standings, participation configuration &amp; anonymous reports</p>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <button className="secondary sm" onClick={loadTfc}>↻ Refresh TFC</button>
+              {tfcSubtab === "requests" && tfcRequests.filter((r) => r.status === "pending").length > 0 && (
+                <button
+                  className="success sm"
+                  onClick={handleApproveAllTfcRequests}
+                  disabled={isApprovingAllTfc}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                >
+                  <span>{isApprovingAllTfc ? "Approving All…" : `✓ Approve All (${tfcRequests.filter((r) => r.status === "pending").length})`}</span>
+                </button>
+              )}
               {tfcSubtab === "participants" && (
                 <button className="primary sm" onClick={() => setAddTfcPartModalOpen(true)}>＋ Add Participant</button>
               )}
@@ -1278,8 +1525,10 @@ const AdminDashboard = () => {
           <div style={{ display: "flex", gap: 8, marginBottom: 18, borderBottom: "1px solid var(--border)", paddingBottom: 12, flexWrap: "wrap" }}>
             {[
               { id: "requests", label: "📥 Requests", count: tfcRequests.filter((r) => r.status === "pending").length },
+              { id: "standings", label: "🏆 Full Standings", count: tfcStandingsData.length },
+              { id: "participation", label: "⚙️ Participation Config", count: participationMatrix.length },
               { id: "participants", label: "👥 Participants", count: tfcParticipants.length },
-              { id: "contests", label: "🏆 Contests", count: tfcContests.length },
+              { id: "contests", label: "🎯 Contests", count: tfcContests.length },
               { id: "reports", label: "🚩 Reports", count: tfcReports.filter((r) => r.status === "pending").length },
             ].map((sub) => {
               const active = tfcSubtab === sub.id;
@@ -1328,74 +1577,469 @@ const AdminDashboard = () => {
               {tfcRequests.filter((r) => r.status === "pending").length === 0 ? (
                 <div className="empty-state"><p>🎉 No pending TFC requests.</p></div>
               ) : (
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Contestant</th>
-                      <th>Roll &amp; Batch</th>
-                      <th>Handles</th>
-                      <th>Recordings Link</th>
-                      <th style={{ width: 180, textAlign: "right" }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tfcRequests.filter((r) => r.status === "pending").map((reqItem) => (
-                      <tr key={reqItem._id}>
-                        <td>
-                          <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{reqItem.name}</div>
-                        </td>
-                        <td>
-                          <div style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>
-                            {reqItem.roll} · <span className="badge" style={{ padding: "1px 6px", fontSize: 11 }}>{normalizeBatch(reqItem.batch) || reqItem.batch}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ fontSize: 12 }}>
-                            {reqItem.codeforcesHandle && <div>CF: <strong>{reqItem.codeforcesHandle}</strong></div>}
-                            {reqItem.vjudgeHandles && reqItem.vjudgeHandles.length > 0 && (
-                              <div style={{ color: "var(--text-muted)", marginTop: 2 }}>
-                                VJ: {reqItem.vjudgeHandles.join(", ")}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td>
-                          {reqItem.playlistUrl ? (
-                            <a href={reqItem.playlistUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "var(--primary)", textDecoration: "none" }}>
-                              Playlist Link ↗
-                            </a>
-                          ) : (
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>None</span>
-                          )}
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                            <button
-                              className="success sm"
-                              onClick={() => handleApproveTfcRequest(reqItem._id)}
-                              disabled={approvingTfcRequestId === reqItem._id || rejectingTfcRequestId === reqItem._id}
-                            >
-                              {approvingTfcRequestId === reqItem._id ? "Approving…" : "Approve"}
-                            </button>
-                            <button
-                              className="danger sm"
-                              onClick={() =>
-                                setDeleteModal({
-                                  type: "tfc_request",
-                                  id: reqItem._id,
-                                  name: `TFC Request from ${reqItem.name} (${reqItem.roll})`,
-                                })
-                              }
-                              disabled={approvingTfcRequestId === reqItem._id || rejectingTfcRequestId === reqItem._id}
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        </td>
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                      <strong>{tfcRequests.filter((r) => r.status === "pending").length}</strong> pending contestant requests awaiting review
+                    </div>
+                    <button
+                      className="success sm"
+                      onClick={handleApproveAllTfcRequests}
+                      disabled={isApprovingAllTfc}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                    >
+                      <span>{isApprovingAllTfc ? "Approving All…" : `✓ Approve All (${tfcRequests.filter((r) => r.status === "pending").length})`}</span>
+                    </button>
+                  </div>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Contestant</th>
+                        <th>Roll &amp; Batch</th>
+                        <th>Handles</th>
+                        <th>Recordings Link</th>
+                        <th style={{ width: 180, textAlign: "right" }}>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {tfcRequests.filter((r) => r.status === "pending").map((reqItem) => (
+                        <tr key={reqItem._id}>
+                          <td>
+                            <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{reqItem.name}</div>
+                          </td>
+                          <td>
+                            <div style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>
+                              {reqItem.roll} · <span className="badge" style={{ padding: "1px 6px", fontSize: 11 }}>{normalizeBatch(reqItem.batch) || reqItem.batch}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ fontSize: 12 }}>
+                              {reqItem.codeforcesHandle && <div>CF: <strong>{reqItem.codeforcesHandle}</strong></div>}
+                              {reqItem.vjudgeHandles && reqItem.vjudgeHandles.length > 0 && (
+                                <div style={{ color: "var(--text-muted)", marginTop: 2 }}>
+                                  VJ: {reqItem.vjudgeHandles.join(", ")}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            {reqItem.playlistUrl ? (
+                              <a href={reqItem.playlistUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "var(--primary)", textDecoration: "none" }}>
+                                Playlist Link ↗
+                              </a>
+                            ) : (
+                              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>None</span>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                              <button
+                                className="success sm"
+                                onClick={() => handleApproveTfcRequest(reqItem._id)}
+                                disabled={approvingTfcRequestId === reqItem._id || rejectingTfcRequestId === reqItem._id}
+                              >
+                                {approvingTfcRequestId === reqItem._id ? "Approving…" : "Approve"}
+                              </button>
+                              <button
+                                className="danger sm"
+                                onClick={() =>
+                                  setDeleteModal({
+                                    type: "tfc_request",
+                                    id: reqItem._id,
+                                    name: `TFC Request from ${reqItem.name} (${reqItem.roll})`,
+                                  })
+                                }
+                                disabled={approvingTfcRequestId === reqItem._id || rejectingTfcRequestId === reqItem._id}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Subtab 2: TFC Standings (Full Standings for All Participants) */}
+          {!tfcLoading && tfcSubtab === "standings" && (
+            <div>
+              {/* Standings Filter & Switcher Bar */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {[
+                    { id: "normal", label: "Standard Rating" },
+                    { id: "gain-only", label: "Gain Only" },
+                    { id: "zero-participation", label: "Participation Weighted" },
+                  ].map((t) => {
+                    const active = tfcStandingsType === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        className={active ? "primary xs" : "secondary xs"}
+                        onClick={() => setTfcStandingsType(t.id)}
+                        style={{ borderRadius: 999, padding: "5px 12px", fontSize: 12 }}
+                      >
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <input
+                    type="text"
+                    placeholder="Search participant, roll, handle..."
+                    value={tfcStandingsSearch}
+                    onChange={(e) => setTfcStandingsSearch(e.target.value)}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "var(--radius)",
+                      border: "1px solid var(--border)",
+                      fontSize: 13,
+                      minWidth: 220,
+                    }}
+                  />
+                  <BatchSelect
+                    options={adminTfcStandingsBatches}
+                    selectedBatches={tfcStandingsBatches}
+                    onChange={setTfcStandingsBatches}
+                  />
+                </div>
+              </div>
+
+              {displayedAdminTfcStandings.length === 0 ? (
+                <div className="empty-state">
+                  <p>No participants match the selected filters or no TFC standings computed yet.</p>
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th
+                          style={{ width: 75, cursor: "pointer" }}
+                          onClick={() => {
+                            if (tfcStandingsSortField === "rank") {
+                              setTfcStandingsSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                            } else {
+                              setTfcStandingsSortField("rank");
+                              setTfcStandingsSortDir("asc");
+                            }
+                          }}
+                        >
+                          Rank <SortIcon field="rank" sortField={tfcStandingsSortField} sortDir={tfcStandingsSortDir} />
+                        </th>
+                        <th
+                          style={{ cursor: "pointer" }}
+                          onClick={() => {
+                            if (tfcStandingsSortField === "name") {
+                              setTfcStandingsSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                            } else {
+                              setTfcStandingsSortField("name");
+                              setTfcStandingsSortDir("asc");
+                            }
+                          }}
+                        >
+                          Contestant <SortIcon field="name" sortField={tfcStandingsSortField} sortDir={tfcStandingsSortDir} />
+                        </th>
+                        <th
+                          style={{ width: 90, cursor: "pointer" }}
+                          onClick={() => {
+                            if (tfcStandingsSortField === "batch") {
+                              setTfcStandingsSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                            } else {
+                              setTfcStandingsSortField("batch");
+                              setTfcStandingsSortDir("desc");
+                            }
+                          }}
+                        >
+                          Batch <SortIcon field="batch" sortField={tfcStandingsSortField} sortDir={tfcStandingsSortDir} />
+                        </th>
+                        <th>Handles</th>
+                        <th
+                          style={{ width: 90, textAlign: "center", cursor: "pointer" }}
+                          onClick={() => {
+                            if (tfcStandingsSortField === "contests") {
+                              setTfcStandingsSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                            } else {
+                              setTfcStandingsSortField("contests");
+                              setTfcStandingsSortDir("desc");
+                            }
+                          }}
+                        >
+                          Contests <SortIcon field="contests" sortField={tfcStandingsSortField} sortDir={tfcStandingsSortDir} />
+                        </th>
+                        <th
+                          style={{ width: 110, textAlign: "right", cursor: "pointer" }}
+                          onClick={() => {
+                            if (tfcStandingsSortField === "rating") {
+                              setTfcStandingsSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                            } else {
+                              setTfcStandingsSortField("rating");
+                              setTfcStandingsSortDir("desc");
+                            }
+                          }}
+                        >
+                          TFC Rating <SortIcon field="rating" sortField={tfcStandingsSortField} sortDir={tfcStandingsSortDir} />
+                        </th>
+                        <th style={{ width: 130, textAlign: "center" }}>Recordings</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayedAdminTfcStandings.map((p, idx) => (
+                        <tr key={p.id || p._id || idx}>
+                          <td>
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                minWidth: 28,
+                                height: 26,
+                                padding: "0 6px",
+                                borderRadius: 999,
+                                fontSize: 12,
+                                fontWeight: 800,
+                                fontFamily: "var(--font-mono)",
+                                background:
+                                  p.rank === 1
+                                    ? "linear-gradient(135deg, #fbbf24 0%, #d97706 100%)"
+                                    : p.rank === 2
+                                    ? "linear-gradient(135deg, #cbd5e1 0%, #94a3b8 100%)"
+                                    : p.rank === 3
+                                    ? "linear-gradient(135deg, #fbcfe8 0%, #f472b6 100%)"
+                                    : "var(--bg-subtle)",
+                                color: p.rank <= 3 ? "#ffffff" : "var(--text-primary)",
+                                border: `1px solid ${p.rank <= 3 ? "transparent" : "var(--border)"}`,
+                              }}
+                            >
+                              #{p.rank}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{p.name}</div>
+                            <div style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                              {p.roll}
+                            </div>
+                          </td>
+                          <td>
+                            <span className="badge" style={{ padding: "2px 8px", fontSize: 11 }}>
+                              {normalizeBatch(p.batch) || p.batch}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ fontSize: 12 }}>
+                              {p.codeforcesHandle && (
+                                <div>
+                                  CF:{" "}
+                                  <a
+                                    href={`https://codeforces.com/profile/${p.codeforcesHandle}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ color: "var(--primary)", fontWeight: 600, textDecoration: "none" }}
+                                  >
+                                    {p.codeforcesHandle}
+                                  </a>
+                                </div>
+                              )}
+                              {p.vjudgeHandles && p.vjudgeHandles.length > 0 && (
+                                <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
+                                  VJ: {p.vjudgeHandles.join(", ")}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: "center", fontWeight: 700, fontFamily: "var(--font-mono)" }}>
+                            {p.contests || 0}
+                          </td>
+                          <td style={{ textAlign: "right" }}>
+                            <div style={{ fontWeight: 800, fontSize: 14, color: "var(--primary)", fontFamily: "var(--font-mono)" }}>
+                              {p.ratingDisplay || Math.round(p.rating || 0)}
+                            </div>
+                            <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                              {p.wins || 0}W · {p.losses || 0}L
+                            </div>
+                          </td>
+                          <td style={{ textAlign: "center" }}>
+                            {p.playlistUrl ? (
+                              <a
+                                href={p.playlistUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="secondary xs"
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  fontSize: 11,
+                                  textDecoration: "none",
+                                  padding: "3px 8px",
+                                }}
+                              >
+                                <span>📺 Videos</span>
+                              </a>
+                            ) : (
+                              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>No Playlist</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Subtab 3: TFC Participation Matrix & Contest Exclusions */}
+          {!tfcLoading && tfcSubtab === "participation" && (
+            <div>
+              {/* Info & Instructions Notice */}
+              <div
+                style={{
+                  background: "linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, rgba(59, 130, 246, 0.05) 100%)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius)",
+                  padding: "12px 16px",
+                  marginBottom: 16,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)", marginBottom: 2 }}>
+                    ⚙️ Participation &amp; Screen Recording Exclusions
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                    Contests marked with a green badge <strong style={{ color: "#059669" }}>[✓ Included]</strong> are counted towards ratings.
+                    If a participant did not submit screen recording, click the cell to mark it <strong style={{ color: "#dc2626" }}>[✕ Excluded]</strong> so that contest is omitted from their rating.
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button className="secondary xs" onClick={loadTfc}>↻ Reload Matrix</button>
+                </div>
+              </div>
+
+              {/* Filters */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 14 }}>
+                <input
+                  type="text"
+                  placeholder="Search contestant name, roll, handle..."
+                  value={participationSearch}
+                  onChange={(e) => setParticipationSearch(e.target.value)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: "var(--radius)",
+                    border: "1px solid var(--border)",
+                    fontSize: 13,
+                    minWidth: 240,
+                  }}
+                />
+                <BatchSelect
+                  options={adminParticipationBatches}
+                  selectedBatches={participationBatches}
+                  onChange={setParticipationBatches}
+                />
+                <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)" }}>
+                  Showing <strong>{displayedParticipationMatrix.length}</strong> participants · <strong>{participationContests.length}</strong> contests
+                </div>
+              </div>
+
+              {displayedParticipationMatrix.length === 0 ? (
+                <div className="empty-state"><p>No participants match your filter.</p></div>
+              ) : participationContests.length === 0 ? (
+                <div className="empty-state"><p>No active TFC contests found.</p></div>
+              ) : (
+                <div className="matrix-table-container">
+                  <table className="matrix-table">
+                    <thead>
+                      <tr>
+                        <th className="sticky-col">Contestant</th>
+                        {participationContests.map((c) => (
+                          <th key={c._id || c.contestId} style={{ minWidth: 120 }}>
+                            <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>#{c.contestId}</div>
+                            <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 130 }} title={c.title}>
+                              {c.title || `Contest #${c.contestId}`}
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayedParticipationMatrix.map((row) => {
+                        const totalParticipated = participationContests.filter((c) => row.participation?.[c.contestId]?.participated).length;
+                        const totalExcluded = participationContests.filter((c) => row.excludedContests?.some((id) => Number(id) === Number(c.contestId))).length;
+                        const countedCount = Math.max(0, totalParticipated - totalExcluded);
+
+                        return (
+                          <tr key={row.id}>
+                            <td className="sticky-col">
+                              <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{row.name}</div>
+                              <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: 1 }}>
+                                {row.roll} · <span className="badge" style={{ padding: "0 4px", fontSize: 10 }}>{normalizeBatch(row.batch) || row.batch}</span>
+                              </div>
+                              <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: totalExcluded > 0 ? "#dc2626" : "var(--success)", background: totalExcluded > 0 ? "rgba(239, 68, 68, 0.1)" : "rgba(16, 185, 129, 0.1)", padding: "1px 6px", borderRadius: 4 }}>
+                                  {countedCount} Counted {totalExcluded > 0 ? `(${totalExcluded} Excluded)` : ""}
+                                </span>
+                                {row.playlistUrl && (
+                                  <a href={row.playlistUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "var(--primary)", textDecoration: "none" }}>
+                                    Playlist ↗
+                                  </a>
+                                )}
+                              </div>
+                            </td>
+                            {participationContests.map((c) => {
+                              const isExcluded = row.excludedContests?.some((id) => Number(id) === Number(c.contestId));
+                              const pData = row.participation?.[c.contestId];
+                              const isToggling = togglingCell === `${row.id}-${c.contestId}`;
+
+                              if (pData?.participated) {
+                                return (
+                                  <td key={c.contestId}>
+                                    <button
+                                      type="button"
+                                      className={`matrix-cell-btn ${isExcluded ? "excluded" : "included"}`}
+                                      onClick={() => handleToggleParticipation(row.id, c.contestId, isExcluded)}
+                                      disabled={isToggling}
+                                      title={isExcluded ? "Click to include in rating" : "Click to exclude (no screen recording)"}
+                                    >
+                                      <span className="matrix-icon">{isToggling ? "…" : isExcluded ? "✕" : "✓"}</span>
+                                      <span className="matrix-text">{isExcluded ? "Excluded" : `Rank #${pData.rank}`}</span>
+                                      <span className="matrix-sub">{isExcluded ? `(Was #${pData.rank})` : `(${pData.solved || 0} solved)`}</span>
+                                    </button>
+                                  </td>
+                                );
+                              }
+
+                              return (
+                                <td key={c.contestId}>
+                                  <button
+                                    type="button"
+                                    className={`matrix-cell-btn ${isExcluded ? "excluded" : "unparticipated"}`}
+                                    onClick={() => handleToggleParticipation(row.id, c.contestId, isExcluded)}
+                                    disabled={isToggling}
+                                    title={isExcluded ? "Marked excluded. Click to remove exclusion." : "Did not participate. Click to toggle exclusion."}
+                                  >
+                                    <span className="matrix-icon">{isToggling ? "…" : isExcluded ? "✕" : "—"}</span>
+                                    <span className="matrix-text">{isExcluded ? "Excluded" : "No Sub"}</span>
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           )}

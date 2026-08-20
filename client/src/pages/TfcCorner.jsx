@@ -161,6 +161,7 @@ const TfcCorner = () => {
   const [rError, setRError] = useState("");
   const [rDone, setRDone] = useState(false);
   const [formKey, setFormKey] = useState(0);
+  const [topNLimit, setTopNLimit] = useState(10);
 
   // Fetch TFC Standings
   const fetchStandings = useCallback(async () => {
@@ -169,6 +170,9 @@ const TfcCorner = () => {
       const data = await getTfcStandings();
       memTfcStandings = data;
       memTfcContests = data.contests || [];
+      if (typeof data.topNLimit === "number") {
+        setTopNLimit(data.topNLimit);
+      }
       if (data.standingsByType) {
         setStandingsMap(data.standingsByType);
       }
@@ -211,8 +215,9 @@ const TfcCorner = () => {
 
   const availableBatches = useMemo(() => {
     const s = new Set();
+    const raw = standingsMap[selectedType] || standings;
     const source = activeTab === "standings"
-      ? (standingsMap[selectedType] || standings).slice(0, 10)
+      ? (topNLimit > 0 ? raw.slice(0, topNLimit) : raw)
       : participants;
     source.forEach((r) => {
       const b = normalizeBatch(r.batch);
@@ -223,14 +228,14 @@ const TfcCorner = () => {
       const nb = parseInt(extractBatchDigits(b) || "0", 10);
       return nb - na;
     });
-  }, [activeTab, standingsMap, selectedType, standings, participants]);
+  }, [activeTab, standingsMap, selectedType, standings, participants, topNLimit]);
 
-  // Filtered standings — strictly only global top 10 contestants
+  // Filtered standings — strictly only global top N contestants configured by admin
   const displayedStandings = useMemo(() => {
     const rawList = standingsMap[selectedType] || standings;
-    // Only the participants that are globally in top 10 are visible
-    const top10 = rawList.slice(0, 10);
-    let list = top10.slice();
+    // Only the participants that are globally in top N are visible
+    const topList = topNLimit > 0 ? rawList.slice(0, topNLimit) : rawList;
+    let list = topList.slice();
 
     if (selectedBatches.length > 0) {
       list = list.filter((r) => {
@@ -451,6 +456,25 @@ const TfcCorner = () => {
             </div>
           </div>
           <img src="/logo.png" alt="SGIPC" className="hero-logo" />
+        </div>
+      </div>
+
+      {/* ── MANDATORY SCREEN RECORDING NOTICE (RED BANNER) ──────────────── */}
+      <div className="tfc-notice-banner">
+        <div className="tfc-notice-icon-wrapper">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+          </svg>
+        </div>
+        <div className="tfc-notice-content">
+          <div className="tfc-notice-title">
+            <span className="tfc-notice-pulse" />
+            <span>MANDATORY RULE FOR TFC CONTESTANTS</span>
+          </div>
+          <p className="tfc-notice-text">
+            <strong>Participation without screen recording will NOT be counted!</strong> Every contestant must record their entire screen during all TFC contests and submit their video playlist link via the TFC Form. Unrecorded participations will be excluded from official standings and rating calculations.
+          </p>
         </div>
       </div>
 

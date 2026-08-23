@@ -196,8 +196,33 @@ export const approveAdminTfcRequest = async (id) => {
   return data;
 };
 
+export const approveAllAdminTfcRequests = async () => {
+  const { data } = await api.post("/admin/tfc/requests/approve-all");
+  return data;
+};
+
 export const rejectAdminTfcRequest = async (id) => {
   const { data } = await api.post(`/admin/tfc/requests/${id}/reject`);
+  return data;
+};
+
+export const getAdminTfcParticipationMatrix = async () => {
+  const { data } = await api.get("/admin/tfc/participation-matrix");
+  return data;
+};
+
+export const toggleAdminTfcParticipation = async (payload) => {
+  const { data } = await api.post("/admin/tfc/participation-matrix/toggle", payload);
+  return data;
+};
+
+export const getAdminTfcConfig = async () => {
+  const { data } = await api.get("/admin/tfc/config");
+  return data;
+};
+
+export const updateAdminTfcConfig = async (payload) => {
+  const { data } = await api.patch("/admin/tfc/config", payload);
   return data;
 };
 

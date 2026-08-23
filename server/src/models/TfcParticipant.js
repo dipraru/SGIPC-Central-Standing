@@ -17,6 +17,7 @@ const tfcParticipantSchema = new mongoose.Schema(
     codeforcesHandle: { type: String, trim: true, default: "" },
     otherOjs: { type: [otherOjSchema], default: [] },
     playlistUrl: { type: String, trim: true, default: "" },
+    excludedContests: { type: [Number], default: [] },
   },
   { timestamps: true }
 );

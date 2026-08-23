@@ -438,6 +438,9 @@ router.delete("/tfc/reports/:id", authRequired, async (req, res) => {
     return res.json({ message: "Report deleted successfully" });
   } catch (err) {
     return res.status(500).json({ message: "Failed to delete report" });
+  }
+});
+
 // ── TFC Config ───────────────────────────────────────────────────────────────
 router.get("/tfc/config", authRequired, async (req, res) => {
   try {

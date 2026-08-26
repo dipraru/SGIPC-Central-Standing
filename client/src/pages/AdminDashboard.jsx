@@ -35,6 +35,10 @@ import {
   createAdminTfcContest,
   updateAdminTfcContest,
   deleteAdminTfcContest,
+  syncAdminTfcContests,
+  syncAdminTfcContest,
+  syncVjudgeContests,
+  syncVjudgeContest,
   getAdminTfcReports,
   updateAdminTfcReport,
   deleteAdminTfcReport,
@@ -788,6 +792,66 @@ const AdminDashboard = () => {
     }
   };
 
+  const [isSyncingTfcContests, setIsSyncingTfcContests] = useState(false);
+  const [syncingTfcContestId, setSyncingTfcContestId] = useState(null);
+
+  const handleSyncTfcContests = async () => {
+    if (isSyncingTfcContests) return;
+    try {
+      setIsSyncingTfcContests(true);
+      const res = await syncAdminTfcContests();
+      alert(res?.message || "TFC contests synced successfully.");
+      await loadTfc();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to sync TFC contests.");
+    } finally {
+      setIsSyncingTfcContests(false);
+    }
+  };
+
+  const handleSyncSingleTfcContest = async (id) => {
+    if (syncingTfcContestId) return;
+    try {
+      setSyncingTfcContestId(id);
+      await syncAdminTfcContest(id);
+      await loadTfc();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to sync contest.");
+    } finally {
+      setSyncingTfcContestId(null);
+    }
+  };
+
+  const [isSyncingVjudgeContests, setIsSyncingVjudgeContests] = useState(false);
+  const [syncingVjudgeContestId, setSyncingVjudgeContestId] = useState(null);
+
+  const handleSyncVjudgeContests = async () => {
+    if (isSyncingVjudgeContests) return;
+    try {
+      setIsSyncingVjudgeContests(true);
+      const res = await syncVjudgeContests();
+      alert(res?.message || "VJudge contests synced successfully.");
+      await loadVjudge();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to sync VJudge contests.");
+    } finally {
+      setIsSyncingVjudgeContests(false);
+    }
+  };
+
+  const handleSyncSingleVjudgeContest = async (id) => {
+    if (syncingVjudgeContestId) return;
+    try {
+      setSyncingVjudgeContestId(id);
+      await syncVjudgeContest(id);
+      await loadVjudge();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to sync VJudge contest.");
+    } finally {
+      setSyncingVjudgeContestId(null);
+    }
+  };
+
   const handleUpdateReportStatus = async (id, status) => {
     try {
       await updateAdminTfcReport(id, { status });
@@ -1267,14 +1331,23 @@ const AdminDashboard = () => {
           <div className="section-divider" />
 
           {/* Contests Section */}
-          <div className="card-header" style={{ marginTop: 24 }}>
+          <div className="card-header" style={{ marginTop: 24, flexWrap: "wrap", gap: 10 }}>
             <div>
               <h2>VJudge Contests ({vjudgeContests.length})</h2>
               <p className="card-subtitle">Contests included in team rating calculation</p>
             </div>
-            <button className="secondary sm" onClick={() => setAddContestModalOpen(true)}>
-              ＋ Add Contest
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="secondary sm"
+                onClick={handleSyncVjudgeContests}
+                disabled={isSyncingVjudgeContests}
+              >
+                {isSyncingVjudgeContests ? "Syncing Ranks…" : "🔄 Sync Ranks from VJudge"}
+              </button>
+              <button className="secondary sm" onClick={() => setAddContestModalOpen(true)}>
+                ＋ Add Contest
+              </button>
+            </div>
           </div>
 
           {vjudgeContests.length === 0 ? (
@@ -1285,14 +1358,17 @@ const AdminDashboard = () => {
                 <tr>
                   <th style={{ width: 110 }}>Contest ID</th>
                   <th>Title</th>
+                  <th style={{ width: 120 }}>Rank Data</th>
                   <th style={{ width: 90 }}>Status</th>
-                  <th style={{ width: 140, textAlign: "right" }}>Actions</th>
+                  <th style={{ width: 180, textAlign: "right" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {vjudgeContests.map((c) => {
                   const isEditing = editingContestId === c._id;
                   const isEnabled = c.enabled !== false;
+                  const hasData = Array.isArray(c.ranklist) && c.ranklist.length > 0;
+                  const isSyncingThis = syncingVjudgeContestId === c._id;
                   return (
                     <tr key={c._id}>
                       <td style={{ fontFamily: "var(--font-mono)", fontWeight: 600 }}>
@@ -1321,6 +1397,17 @@ const AdminDashboard = () => {
                               ✏️
                             </button>
                           </div>
+                        )}
+                      </td>
+                      <td>
+                        {hasData ? (
+                          <span style={{ fontSize: 12, color: "var(--success)" }}>
+                            ✓ {c.ranklist.length} ranks
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 12, color: "var(--warning)" }}>
+                            ⚠ Not synced
+                          </span>
                         )}
                       </td>
                       <td style={{ textAlign: "center" }}>
@@ -1366,7 +1453,16 @@ const AdminDashboard = () => {
                               <button className="secondary xs" onClick={() => setEditingContestId(null)}>Cancel</button>
                             </>
                           ) : (
-                            <button className="danger xs" onClick={() => setDeleteModal({ type: "contest", id: c._id || c.id, name: c.title || `Contest #${c.contestId}` })}>Delete</button>
+                            <>
+                              <button
+                                className="secondary xs"
+                                disabled={isSyncingThis}
+                                onClick={() => handleSyncSingleVjudgeContest(c._id)}
+                              >
+                                {isSyncingThis ? "Syncing…" : "Sync"}
+                              </button>
+                              <button className="danger xs" onClick={() => setDeleteModal({ type: "contest", id: c._id || c.id, name: c.title || `Contest #${c.contestId}` })}>Delete</button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -1516,7 +1612,16 @@ const AdminDashboard = () => {
                 <button className="primary sm" onClick={() => setAddTfcPartModalOpen(true)}>＋ Add Participant</button>
               )}
               {tfcSubtab === "contests" && (
-                <button className="primary sm" onClick={() => setAddTfcContestModalOpen(true)}>＋ Add Contest</button>
+                <>
+                  <button
+                    className="secondary sm"
+                    onClick={handleSyncTfcContests}
+                    disabled={isSyncingTfcContests}
+                  >
+                    {isSyncingTfcContests ? "Syncing Ranks…" : "🔄 Sync Ranks from VJudge"}
+                  </button>
+                  <button className="primary sm" onClick={() => setAddTfcContestModalOpen(true)}>＋ Add Contest</button>
+                </>
               )}
             </div>
           </div>
@@ -2115,17 +2220,31 @@ const AdminDashboard = () => {
                     <tr>
                       <th style={{ width: 110 }}>Contest ID</th>
                       <th>Title</th>
+                      <th style={{ width: 120 }}>Rank Data</th>
                       <th style={{ width: 100 }}>Status</th>
-                      <th style={{ width: 100, textAlign: "right" }}>Actions</th>
+                      <th style={{ width: 150, textAlign: "right" }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {tfcContests.map((c) => {
                       const isEnabled = c.enabled !== false;
+                      const hasData = Array.isArray(c.ranklist) && c.ranklist.length > 0;
+                      const isSyncingThis = syncingTfcContestId === c._id;
                       return (
                         <tr key={c._id}>
                           <td style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>{c.contestId}</td>
                           <td><strong>{c.title || `TFC Contest #${c.contestId}`}</strong></td>
+                          <td>
+                            {hasData ? (
+                              <span style={{ fontSize: 12, color: "var(--success)" }}>
+                                ✓ {c.ranklist.length} ranks
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 12, color: "var(--warning)" }}>
+                                ⚠ Not synced
+                              </span>
+                            )}
+                          </td>
                           <td>
                             <button
                               className={isEnabled ? "success xs" : "secondary xs"}
@@ -2153,6 +2272,13 @@ const AdminDashboard = () => {
                           </td>
                           <td>
                             <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                              <button
+                                className="secondary xs"
+                                disabled={isSyncingThis}
+                                onClick={() => handleSyncSingleTfcContest(c._id)}
+                              >
+                                {isSyncingThis ? "Syncing…" : "Sync"}
+                              </button>
                               <button
                                 className="danger xs"
                                 onClick={() => setDeleteModal({ type: "tfc_contest", id: c._id, name: c.title || `Contest #${c.contestId}` })}

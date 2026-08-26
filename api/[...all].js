@@ -82,6 +82,40 @@ app.get("/api/cron/refresh", async (req, res) => {
   }
 });
 
+// Cron-triggered contest sync endpoint
+app.get("/api/cron/sync-contests", async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.query.secret !== secret) {
+    return res.status(401).json({ status: "unauthorized" });
+  }
+
+  try {
+    await initializeApp();
+    const { TfcContest } = await import("../server/src/models/TfcContest.js");
+    const { VjudgeContest } = await import("../server/src/models/VjudgeContest.js");
+    const { syncContestRank } = await import("../server/src/services/vjudge.js");
+
+    const tfcContests = await TfcContest.find({ enabled: true });
+    for (const c of tfcContests) {
+      await syncContestRank(TfcContest, c);
+    }
+
+    const vjudgeContests = await VjudgeContest.find({ enabled: true });
+    for (const c of vjudgeContests) {
+      await syncContestRank(VjudgeContest, c);
+    }
+
+    res.json({
+      status: "ok",
+      syncedTfc: tfcContests.length,
+      syncedVjudge: vjudgeContests.length,
+    });
+  } catch (error) {
+    console.error("Contest sync error:", error);
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
 // Chunked refresh for long-running refreshAllHandles (avoid 60s timeouts)
 app.get("/api/cron/refresh-chunk", async (req, res) => {
   const secret = process.env.CRON_SECRET;

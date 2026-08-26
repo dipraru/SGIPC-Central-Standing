@@ -6,7 +6,7 @@ import { TfcContest } from "../models/TfcContest.js";
 import { TfcRequest } from "../models/TfcRequest.js";
 import { TfcReport } from "../models/TfcReport.js";
 import { TfcConfig } from "../models/TfcConfig.js";
-import { fetchContestRank, findBestGroupMatch } from "../services/vjudge.js";
+import { fetchContestRank, findBestGroupMatch, syncContestRank } from "../services/vjudge.js";
 
 const router = express.Router();
 
@@ -139,19 +139,26 @@ router.get("/tfc/participation-matrix", authRequired, async (req, res) => {
     const contests = await TfcContest.find().sort({ contestId: 1 }).lean();
     const participants = await TfcParticipant.find().sort({ batch: -1, roll: 1 }).lean();
 
-    // Fetch ranks for all contests in parallel
+    // Fetch ranks for all contests (using cached data from MongoDB if available)
     const contestRankData = await Promise.all(
       contests.map(async (contest) => {
         try {
-          const data = await fetchContestRank(contest.contestId);
-          if (data.error) return { contestId: contest.contestId, ranklist: null, error: data.error };
+          if (contest.ranklist && Array.isArray(contest.ranklist) && contest.ranklist.length > 0) {
+            return {
+              contestId: contest.contestId,
+              ranklist: contest.ranklist,
+              participants: contest.participants || {},
+            };
+          }
+          const data = await syncContestRank(TfcContest, contest);
+          if (data.error) return { contestId: contest.contestId, ranklist: contest.ranklist || null, error: data.error };
           return {
             contestId: contest.contestId,
             ranklist: data.ranklist,
             participants: data.participants,
           };
         } catch (e) {
-          return { contestId: contest.contestId, ranklist: null, error: e.message };
+          return { contestId: contest.contestId, ranklist: contest.ranklist || null, error: e.message };
         }
       })
     );
@@ -347,15 +354,36 @@ router.post("/tfc/contests", authRequired, async (req, res) => {
     }
 
     let finalTitle = title ? title.trim() : "";
+    let ranklist = null;
+    let participants = null;
+    let fetchStatus = "idle";
+    let fetchError = null;
+
     try {
       const data = await fetchContestRank(numericId);
-      if (data?.title) finalTitle = finalTitle || data.title;
-    } catch (e) {}
+      if (data && !data.error) {
+        if (data.title) finalTitle = finalTitle || data.title;
+        ranklist = data.ranklist || null;
+        participants = data.participants || null;
+        fetchStatus = "success";
+      } else if (data?.error) {
+        fetchStatus = "error";
+        fetchError = data.error;
+      }
+    } catch (e) {
+      fetchStatus = "error";
+      fetchError = e.message;
+    }
 
     const contest = await TfcContest.create({
       contestId: numericId,
       title: finalTitle || `TFC Contest #${numericId}`,
       enabled: true,
+      ranklist,
+      participants,
+      lastFetchedAt: ranklist ? new Date() : null,
+      fetchStatus,
+      fetchError,
     });
     return res.status(201).json(contest);
   } catch (err) {
@@ -366,18 +394,79 @@ router.post("/tfc/contests", authRequired, async (req, res) => {
   }
 });
 
+router.post("/tfc/contests/sync", authRequired, async (req, res) => {
+  try {
+    const contests = await TfcContest.find({ enabled: true });
+    if (!contests.length) {
+      return res.json({ message: "No enabled contests to sync.", count: 0, results: [] });
+    }
+
+    const results = await Promise.all(
+      contests.map(async (c) => {
+        const res = await syncContestRank(TfcContest, c);
+        return {
+          contestId: c.contestId,
+          success: !res.error,
+          error: res.error || null,
+          title: res.title || c.title,
+          participantsCount: res.ranklist ? res.ranklist.length : 0,
+        };
+      })
+    );
+
+    const successCount = results.filter((r) => r.success).length;
+    return res.json({
+      message: `Synced ${successCount}/${contests.length} TFC contests successfully.`,
+      count: successCount,
+      results,
+    });
+  } catch (err) {
+    console.error("TFC contests sync error:", err);
+    return res.status(500).json({ message: "Failed to sync TFC contests", error: err.message });
+  }
+});
+
+router.post("/tfc/contests/:id/sync", authRequired, async (req, res) => {
+  try {
+    const contest = await TfcContest.findById(req.params.id);
+    if (!contest) {
+      return res.status(404).json({ message: "Contest not found" });
+    }
+
+    const result = await syncContestRank(TfcContest, contest);
+    if (result.error) {
+      return res.status(400).json({ message: result.error, contest });
+    }
+
+    const updated = await TfcContest.findById(req.params.id);
+    return res.json({ message: "Contest synced successfully", contest: updated });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to sync contest", error: err.message });
+  }
+});
+
 router.patch("/tfc/contests/:id", authRequired, async (req, res) => {
   try {
     const { contestId, title, enabled } = req.body;
     const updateData = {};
-    if (contestId !== undefined) updateData.contestId = Number(contestId);
+    let contestIdChanged = false;
+    if (contestId !== undefined) {
+      updateData.contestId = Number(contestId);
+      contestIdChanged = true;
+    }
     if (title !== undefined) updateData.title = title.trim();
     if (enabled !== undefined) updateData.enabled = Boolean(enabled);
 
-    const updated = await TfcContest.findByIdAndUpdate(req.params.id, updateData, { new: true });
+    let updated = await TfcContest.findByIdAndUpdate(req.params.id, updateData, { new: true });
     if (!updated) {
       return res.status(404).json({ message: "Contest not found" });
     }
+
+    if (contestIdChanged) {
+      await syncContestRank(TfcContest, updated);
+      updated = await TfcContest.findById(req.params.id);
+    }
+
     return res.json(updated);
   } catch (err) {
     return res.status(500).json({ message: "Failed to update contest" });

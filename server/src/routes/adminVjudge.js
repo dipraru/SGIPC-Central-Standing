@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 import { VjudgeContest } from "../models/VjudgeContest.js";
 import { VjudgeTeam } from "../models/VjudgeTeam.js";
 import { VjudgeConfig } from "../models/VjudgeConfig.js";
-import { fetchContestRank } from "../services/vjudge.js";
+import { fetchContestRank, syncContestRank } from "../services/vjudge.js";
 
 const router = express.Router();
 
@@ -108,19 +108,89 @@ router.post("/vjudge/contests", authRequired, async (req, res) => {
     return res.status(400).json({ message: "Contest ID must be a number" });
   }
   let resolvedTitle = String(title || "").trim();
-  if (!resolvedTitle) {
+  let ranklist = null;
+  let participants = null;
+  let fetchStatus = "idle";
+  let fetchError = null;
+
+  try {
     const data = await fetchContestRank(numericId);
-    resolvedTitle = String(data?.title || "").trim();
-    if (!resolvedTitle) {
-      return res.status(400).json({ message: "Contest name is required" });
+    if (data && !data.error) {
+      resolvedTitle = resolvedTitle || String(data.title || "").trim();
+      ranklist = data.ranklist || null;
+      participants = data.participants || null;
+      fetchStatus = "success";
+    } else if (data?.error) {
+      fetchStatus = "error";
+      fetchError = data.error;
     }
+  } catch (e) {
+    fetchStatus = "error";
+    fetchError = e.message;
   }
+
   const created = await VjudgeContest.create({
     contestId: numericId,
-    title: resolvedTitle,
+    title: resolvedTitle || `Contest #${numericId}`,
     enabled: enabled !== false,
+    ranklist,
+    participants,
+    lastFetchedAt: ranklist ? new Date() : null,
+    fetchStatus,
+    fetchError,
   });
   return res.status(201).json(created);
+});
+
+router.post("/vjudge/contests/sync", authRequired, async (req, res) => {
+  try {
+    const contests = await VjudgeContest.find({ enabled: true });
+    if (!contests.length) {
+      return res.json({ message: "No enabled contests to sync.", count: 0, results: [] });
+    }
+
+    const results = await Promise.all(
+      contests.map(async (c) => {
+        const res = await syncContestRank(VjudgeContest, c);
+        return {
+          contestId: c.contestId,
+          success: !res.error,
+          error: res.error || null,
+          title: res.title || c.title,
+          participantsCount: res.ranklist ? res.ranklist.length : 0,
+        };
+      })
+    );
+
+    const successCount = results.filter((r) => r.success).length;
+    return res.json({
+      message: `Synced ${successCount}/${contests.length} Vjudge contests successfully.`,
+      count: successCount,
+      results,
+    });
+  } catch (err) {
+    console.error("Vjudge contests sync error:", err);
+    return res.status(500).json({ message: "Failed to sync Vjudge contests", error: err.message });
+  }
+});
+
+router.post("/vjudge/contests/:id/sync", authRequired, async (req, res) => {
+  try {
+    const contest = await VjudgeContest.findById(req.params.id);
+    if (!contest) {
+      return res.status(404).json({ message: "Contest not found" });
+    }
+
+    const result = await syncContestRank(VjudgeContest, contest);
+    if (result.error) {
+      return res.status(400).json({ message: result.error, contest });
+    }
+
+    const updated = await VjudgeContest.findById(req.params.id);
+    return res.json({ message: "Contest synced successfully", contest: updated });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to sync contest", error: err.message });
+  }
 });
 
 router.patch("/vjudge/contests/:id", authRequired, async (req, res) => {
@@ -131,6 +201,7 @@ router.patch("/vjudge/contests/:id", authRequired, async (req, res) => {
   }
 
   const updateData = {};
+  let contestIdChanged = false;
   if (enabled !== undefined) {
     updateData.enabled = Boolean(enabled);
   }
@@ -140,23 +211,22 @@ router.patch("/vjudge/contests/:id", authRequired, async (req, res) => {
       return res.status(400).json({ message: "Contest ID must be a number" });
     }
     updateData.contestId = numericId;
+    contestIdChanged = true;
   }
   if (title !== undefined) {
-    let resolvedTitle = String(title || "").trim();
-    if (!resolvedTitle && updateData.contestId) {
-      const data = await fetchContestRank(updateData.contestId);
-      resolvedTitle = String(data?.title || "").trim();
-    }
-    if (resolvedTitle) {
-      updateData.title = resolvedTitle;
-    }
+    updateData.title = String(title || "").trim();
   }
 
-  const updated = await VjudgeContest.findByIdAndUpdate(
+  let updated = await VjudgeContest.findByIdAndUpdate(
     req.params.id,
     updateData,
     { new: true }
   );
+
+  if (contestIdChanged) {
+    await syncContestRank(VjudgeContest, updated);
+    updated = await VjudgeContest.findById(req.params.id);
+  }
 
   return res.json(updated);
 });

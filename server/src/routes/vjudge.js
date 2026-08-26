@@ -6,6 +6,7 @@ import {
   buildEloStandings,
   buildTeamGroups,
   fetchContestRank,
+  syncContestRank,
 } from "../services/vjudge.js";
 
 const router = express.Router();
@@ -32,18 +33,43 @@ router.get("/vjudge/standings", async (req, res) => {
   const contestPayloads = await Promise.all(
     contests.map(async (contest) => {
       try {
-        const data = await fetchContestRank(contest.contestId);
+        if (contest.ranklist && Array.isArray(contest.ranklist) && contest.ranklist.length > 0) {
+          const ageMs = contest.lastFetchedAt
+            ? Date.now() - new Date(contest.lastFetchedAt).getTime()
+            : Infinity;
+
+          if (ageMs > 15 * 60 * 1000) {
+            try {
+              const fresh = await syncContestRank(VjudgeContest, contest);
+              if (fresh && !fresh.error && fresh.ranklist) {
+                return { ...fresh, contestId: contest.contestId };
+              }
+            } catch (e) {}
+          }
+
+          return {
+            contestId: contest.contestId,
+            title: contest.title || `Contest #${contest.contestId}`,
+            ranklist: contest.ranklist,
+            participants: contest.participants || {},
+          };
+        }
+
+        const data = await syncContestRank(VjudgeContest, contest);
         if (data.error) {
           errors.push({ contestId: contest.contestId, message: data.error });
           return null;
         }
-        if (data.title && data.title !== contest.title) {
-          await VjudgeContest.findByIdAndUpdate(contest._id, {
-            title: data.title,
-          });
-        }
         return { ...data, contestId: contest.contestId };
       } catch (error) {
+        if (contest.ranklist && Array.isArray(contest.ranklist) && contest.ranklist.length > 0) {
+          return {
+            contestId: contest.contestId,
+            title: contest.title || `Contest #${contest.contestId}`,
+            ranklist: contest.ranklist,
+            participants: contest.participants || {},
+          };
+        }
         return null;
       }
     })

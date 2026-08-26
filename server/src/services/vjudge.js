@@ -6,7 +6,14 @@ const ELO_K_FACTOR = 32;
 
 const client = axios.create({
   baseURL: "https://vjudge.net",
-  timeout: 15000,
+  timeout: 10000,
+  headers: {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    Accept: "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    Referer: "https://vjudge.net/",
+  },
 });
 
 const normalizeName = (value = "") =>
@@ -296,21 +303,83 @@ export const findBestGroupMatch = (teamGroup, ranklist, participants = {}) => {
 
 export const fetchContestRank = async (contestId) => {
   const url = `/contest/rank/single/${contestId}`;
-  const { data } = await client.get(url, {
-    params: { limit: 2000 },
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "Mozilla/5.0 (compatible; SGIPC-Standings/1.0)",
-    },
-  });
-  const ranklist = buildRanklist(data);
-  if (!ranklist) {
-    return { error: "No ranklist data was returned. VJudge may be throttling anonymous API calls." };
+  try {
+    const { data } = await client.get(url, {
+      params: { limit: 2000 },
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Referer: "https://vjudge.net/",
+      },
+    });
+
+    if (!data || typeof data !== "object") {
+      return { error: "Invalid response format from VJudge" };
+    }
+
+    const ranklist = buildRanklist(data);
+    if (!ranklist) {
+      return { error: "No ranklist data was returned. VJudge may be throttling anonymous API calls." };
+    }
+    return {
+      ranklist,
+      participants: data.participants || {},
+      title: data.title || "",
+    };
+  } catch (err) {
+    const message = err.response?.status
+      ? `VJudge returned HTTP ${err.response.status}`
+      : err.message || "Failed to reach VJudge";
+    return { error: message };
   }
-  return {
-    ranklist,
+};
+
+export const syncContestRank = async (Model, contestDocOrId) => {
+  let doc = contestDocOrId;
+  if (!doc || !doc.contestId) {
+    doc = await Model.findById(contestDocOrId);
+  }
+  if (!doc) return { error: "Contest not found" };
+
+  const data = await fetchContestRank(doc.contestId);
+  if (data.error) {
+    await Model.findByIdAndUpdate(doc._id, {
+      fetchStatus: "error",
+      fetchError: data.error,
+    });
+    // Return cached ranklist if available
+    if (doc.ranklist && Array.isArray(doc.ranklist) && doc.ranklist.length > 0) {
+      return {
+        contestId: doc.contestId,
+        title: doc.title || "",
+        ranklist: doc.ranklist,
+        participants: doc.participants || {},
+        fromCache: true,
+        warning: data.error,
+      };
+    }
+    return { contestId: doc.contestId, error: data.error };
+  }
+
+  const updateFields = {
+    ranklist: data.ranklist,
     participants: data.participants || {},
-    title: data.title || "",
+    lastFetchedAt: new Date(),
+    fetchStatus: "success",
+    fetchError: null,
+  };
+  if (data.title && (!doc.title || doc.title.startsWith("TFC Contest #") || doc.title !== data.title)) {
+    updateFields.title = data.title;
+  }
+
+  const updated = await Model.findByIdAndUpdate(doc._id, updateFields, { new: true });
+  return {
+    contestId: doc.contestId,
+    title: updated.title || data.title,
+    ranklist: data.ranklist,
+    participants: data.participants || {},
+    fromCache: false,
   };
 };
 

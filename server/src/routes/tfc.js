@@ -7,7 +7,7 @@ import { TfcRequest } from "../models/TfcRequest.js";
 import { TfcReport } from "../models/TfcReport.js";
 import { TfcConfig } from "../models/TfcConfig.js";
 import { Passkey } from "../models/Passkey.js";
-import { buildEloStandings, fetchContestRank } from "../services/vjudge.js";
+import { buildEloStandings, fetchContestRank, syncContestRank } from "../services/vjudge.js";
 
 const router = express.Router();
 
@@ -98,155 +98,76 @@ export const fetchPlaylistVideos = async (playlistId) => {
   };
 
   // 1. Try fetching via YouTube Playlist Webpage (ytInitialData parser - works for unlisted playlists & videos)
-  let pageHtml = "";
   try {
     const pageUrl = `https://www.youtube.com/playlist?list=${playlistId}`;
-    const pageRes = await axios.get(pageUrl, {
-      timeout: 10000,
+    const res = await axios.get(pageUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9",
       },
+      timeout: 8000,
     });
-    pageHtml = pageRes.data || "";
 
-    // Extract ytInitialData safely
-    let data = null;
-    const startMarker = "ytInitialData = ";
-    const startIdx = pageHtml.indexOf(startMarker);
-    if (startIdx !== -1) {
-      const jsonStart = startIdx + startMarker.length;
-      const scriptEnd = pageHtml.indexOf("</script>", jsonStart);
-      if (scriptEnd !== -1) {
-        let jsonStr = pageHtml.substring(jsonStart, scriptEnd).trim();
-        if (jsonStr.endsWith(";")) jsonStr = jsonStr.slice(0, -1);
-        try {
-          data = JSON.parse(jsonStr);
-        } catch (e) {}
-      }
-    }
+    const html = res.data || "";
 
-    if (!data) {
-      const match = pageHtml.match(/var ytInitialData = ({.*?});<\/script>/s) || pageHtml.match(/ytInitialData\s*=\s*({.+?});/s);
-      if (match) {
-        try {
-          data = JSON.parse(match[1]);
-        } catch (e) {}
-      }
-    }
+    const match = html.match(/var ytInitialData = ({[\s\S]*?});<\/script>/) ||
+                  html.match(/window\["ytInitialData"\] = ({[\s\S]*?});<\/script>/) ||
+                  html.match(/ytInitialData\s*=\s*({[\s\S]*?});/);
 
-    if (data) {
-      const extractRecursive = (obj) => {
+    if (match && match[1]) {
+      const data = JSON.parse(match[1]);
+
+      const findVideosRecursively = (obj) => {
         if (!obj || typeof obj !== "object") return;
 
-        // Modern Lockup View Model
-        if (obj.lockupViewModel) {
-          const l = obj.lockupViewModel;
-          const videoId = l.contentId || l.rendererContext?.commandContext?.onTap?.innertubeCommand?.watchEndpoint?.videoId;
-          if (videoId) {
-            const title =
-              l.metadata?.lockupMetadataViewModel?.title?.content ||
-              l.rendererContext?.accessibilityContext?.label ||
-              `Video ${videoId}`;
-
-            let duration = "";
-            const overlays = l.contentImage?.thumbnailViewModel?.overlays || [];
-            for (const ov of overlays) {
-              const badgeText = ov.thumbnailBottomOverlayViewModel?.badges?.[0]?.thumbnailBadgeViewModel?.text;
-              if (badgeText) {
-                duration = badgeText;
-                break;
-              }
-              if (ov.thumbnailOverlayTimeStatusRenderer?.text?.simpleText) {
-                duration = ov.thumbnailOverlayTimeStatusRenderer.text.simpleText;
-                break;
-              }
-            }
-
-            const thumbSources = l.contentImage?.thumbnailViewModel?.image?.sources;
-            const thumb = thumbSources && thumbSources.length > 0
-              ? thumbSources[thumbSources.length - 1].url
-              : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-
-            addEntry({ videoId, title, duration, thumb });
-          }
-          return;
-        }
-
-        // Classic Playlist Video Renderer
         if (obj.playlistVideoRenderer) {
-          const p = obj.playlistVideoRenderer;
-          const videoId = p.videoId;
-          if (videoId) {
-            const title =
-              p.title?.runs?.[0]?.text ||
-              p.title?.simpleText ||
-              (p.title?.accessibility?.accessibilityData?.label ? p.title.accessibility.accessibilityData.label.split(" by ")[0] : `Video ${videoId}`);
-            const duration = p.lengthText?.simpleText || (p.lengthSeconds ? `${p.lengthSeconds}s` : "");
-            const thumb =
-              p.thumbnail?.thumbnails?.slice(-1)[0]?.url ||
-              `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-            addEntry({ videoId, title, duration, thumb });
-          }
-          return;
+          const r = obj.playlistVideoRenderer;
+          const vidId = r.videoId;
+          let title = r.title?.runs?.[0]?.text || r.title?.simpleText || "";
+          let duration = r.lengthText?.simpleText || r.lengthText?.runs?.[0]?.text || "";
+          let thumb = r.thumbnail?.thumbnails?.[r.thumbnail.thumbnails.length - 1]?.url || "";
+          let published = r.videoInfo?.runs?.[0]?.text || null;
+          addEntry({ videoId: vidId, title, duration, thumb, publishedAt: published });
         }
 
-        // Compact / Grid / Video Renderers
-        if (obj.compactVideoRenderer || obj.gridVideoRenderer || obj.videoRenderer) {
-          const v = obj.compactVideoRenderer || obj.gridVideoRenderer || obj.videoRenderer;
-          const videoId = v.videoId;
-          if (videoId) {
-            const title = v.title?.runs?.[0]?.text || v.title?.simpleText || `Video ${videoId}`;
-            const duration = v.lengthText?.simpleText || "";
-            const thumb = v.thumbnail?.thumbnails?.slice(-1)[0]?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-            addEntry({ videoId, title, duration, thumb });
+        if (obj.lockupViewModel) {
+          const lvm = obj.lockupViewModel;
+          const vidId = lvm.contentId;
+          const title = lvm.metadata?.lockupMetadataViewModel?.title?.content || "";
+          let duration = "";
+          if (Array.isArray(lvm.contentImage?.thumbnailOverlayBadgeViewModels)) {
+            for (const badge of lvm.contentImage.thumbnailOverlayBadgeViewModels) {
+              const text = badge.thumbnailOverlayBadgeViewModel?.text?.content;
+              if (text && /\d/.test(text)) duration = text;
+            }
           }
-          return;
+          let thumb = "";
+          const thumbs = lvm.contentImage?.collectionThumbnailViewModel?.primaryThumbnail?.thumbnail?.sources ||
+                         lvm.contentImage?.thumbnailViewModel?.image?.sources || [];
+          if (thumbs.length) thumb = thumbs[thumbs.length - 1].url;
+          addEntry({ videoId: vidId, title, duration, thumb, publishedAt: null });
         }
 
-        for (const k of Object.keys(obj)) {
-          extractRecursive(obj[k]);
+        for (const key of Object.keys(obj)) {
+          findVideosRecursively(obj[key]);
         }
       };
 
-      extractRecursive(data);
+      findVideosRecursively(data);
     }
-  } catch (pageErr) {
-    console.error(`ytInitialData scraper failed for playlist ${playlistId}:`, pageErr.message);
+  } catch (err) {
+    // Webpage parse failed, fallback to RSS feed
   }
 
-  // 2. Direct Regex Fallback from page HTML (if JSON parsing missed items)
-  if (entries.length === 0 && pageHtml) {
-    try {
-      const regex = /\"videoId\":\"([a-zA-Z0-9_-]{11})\"/g;
-      let match;
-      const htmlVideoIds = [];
-      while ((match = regex.exec(pageHtml)) !== null) {
-        if (!seenIds.has(match[1])) {
-          htmlVideoIds.push(match[1]);
-        }
-      }
-      for (const vid of htmlVideoIds) {
-        addEntry({
-          videoId: vid,
-          title: `Recording ${vid}`,
-          duration: "",
-          thumb: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
-        });
-      }
-    } catch (regexErr) {
-      console.error(`Regex extraction failed for playlist ${playlistId}:`, regexErr.message);
-    }
-  }
-
-  // 3. Atom XML Feed Fallback
+  // 2. Fallback: Try YouTube XML RSS feed
   if (entries.length === 0) {
     try {
       const feedUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=${playlistId}`;
       const response = await axios.get(feedUrl, {
-        timeout: 8000,
+        timeout: 5000,
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SGIPC-Standing/1.0",
+          "User-Agent": "Mozilla/5.0 (compatible; SGIPC-TFC/1.0)",
         },
       });
       const xml = response.data;
@@ -309,16 +230,49 @@ router.get("/tfc/standings", async (req, res) => {
     const contestPayloads = await Promise.all(
       contests.map(async (contest) => {
         try {
-          const data = await fetchContestRank(contest.contestId);
+          // If we already have ranklist cached in MongoDB:
+          if (contest.ranklist && Array.isArray(contest.ranklist) && contest.ranklist.length > 0) {
+            const ageMs = contest.lastFetchedAt
+              ? Date.now() - new Date(contest.lastFetchedAt).getTime()
+              : Infinity;
+
+            // If older than 15 minutes, try non-blocking background refresh
+            if (ageMs > 15 * 60 * 1000) {
+              try {
+                const fresh = await syncContestRank(TfcContest, contest);
+                if (fresh && !fresh.error && fresh.ranklist) {
+                  return { ...fresh, contestId: contest.contestId };
+                }
+              } catch (e) {
+                // Ignore background refresh failure, use cache
+              }
+            }
+
+            return {
+              contestId: contest.contestId,
+              title: contest.title || `TFC Contest #${contest.contestId}`,
+              ranklist: contest.ranklist,
+              participants: contest.participants || {},
+            };
+          }
+
+          // If no cached ranklist in DB, fetch live and save to DB
+          const data = await syncContestRank(TfcContest, contest);
           if (data.error) {
             errors.push({ contestId: contest.contestId, message: data.error });
             return null;
           }
-          if (data.title && data.title !== contest.title) {
-            await TfcContest.findByIdAndUpdate(contest._id, { title: data.title });
-          }
           return { ...data, contestId: contest.contestId };
         } catch (error) {
+          if (contest.ranklist && Array.isArray(contest.ranklist) && contest.ranklist.length > 0) {
+            return {
+              contestId: contest.contestId,
+              title: contest.title || `TFC Contest #${contest.contestId}`,
+              ranklist: contest.ranklist,
+              participants: contest.participants || {},
+            };
+          }
+          errors.push({ contestId: contest.contestId, message: error.message || "Failed to load contest" });
           return null;
         }
       })

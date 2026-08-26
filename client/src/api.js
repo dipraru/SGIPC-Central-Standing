@@ -112,6 +112,16 @@ export const deleteVjudgeContest = async (id) => {
   return data;
 };
 
+export const syncVjudgeContests = async () => {
+  const { data } = await api.post("/admin/vjudge/contests/sync");
+  return data;
+};
+
+export const syncVjudgeContest = async (id) => {
+  const { data } = await api.post(`/admin/vjudge/contests/${id}/sync`);
+  return data;
+};
+
 export const getVjudgeConfig = async () => {
   const { data } = await api.get("/admin/vjudge/config");
   return data;
@@ -263,6 +273,16 @@ export const updateAdminTfcContest = async (id, payload) => {
 
 export const deleteAdminTfcContest = async (id) => {
   const { data } = await api.delete(`/admin/tfc/contests/${id}`);
+  return data;
+};
+
+export const syncAdminTfcContests = async () => {
+  const { data } = await api.post("/admin/tfc/contests/sync");
+  return data;
+};
+
+export const syncAdminTfcContest = async (id) => {
+  const { data } = await api.post(`/admin/tfc/contests/${id}/sync`);
   return data;
 };
 

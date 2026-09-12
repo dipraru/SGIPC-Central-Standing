@@ -75,7 +75,9 @@ router.get("/vjudge/standings", async (req, res) => {
     })
   );
 
-  const validContests = contestPayloads.filter(Boolean);
+  const validContests = contestPayloads
+    .filter(Boolean)
+    .sort((a, b) => Number(a.contestId) - Number(b.contestId));
   const teamGroups = buildTeamGroups(teams);
   const teamById = new Map(teams.map((t) => [t._id.toString(), t]));
 

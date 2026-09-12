@@ -28,20 +28,29 @@ const formatRating = (value) => {
 
 const normalizeSecondsValue = (value) => {
   const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return null;
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  // VJudge API provides `length` in milliseconds (e.g. 10800000 ms = 10800s = 3h, 12600000 ms = 12600s = 3.5h).
+  // Even a short 5-minute contest is 300,000 ms. If value > 86400 (24h in seconds), it is in ms.
+  if (numeric > 86400) {
+    return Math.floor(numeric / 1000);
+  }
   return numeric;
 };
 
 const normalizeTimestampValue = (value) => {
   if (!value) return null;
   const numeric = Number(value);
-  if (Number.isFinite(numeric)) return numeric;
+  if (Number.isFinite(numeric)) {
+    // If epoch timestamp is in milliseconds (e.g. > 1e11), convert to seconds
+    if (numeric > 1e11) return Math.floor(numeric / 1000);
+    return numeric;
+  }
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) return null;
   return Math.floor(parsed / 1000);
 };
 
-const resolveContestLength = (rankData) => {
+export const resolveContestLength = (rankData) => {
   if (!rankData) return Infinity;
   const directSources = [
     rankData.length,
@@ -85,7 +94,7 @@ const resolveContestLength = (rankData) => {
   return Infinity;
 };
 
-const buildRanklist = (rankData) => {
+export const buildRanklist = (rankData) => {
   if (!rankData?.participants || !Array.isArray(rankData?.submissions)) {
     if (Array.isArray(rankData?.ranklist) && rankData.ranklist.length) {
       return rankData.ranklist;
@@ -131,6 +140,7 @@ const buildRanklist = (rankData) => {
       submissions: 0,
       attempted: false,
       problems: new Map(),
+      upsolved: 0,
     });
   });
 
@@ -141,30 +151,43 @@ const buildRanklist = (rankData) => {
       accepted: entry[2] === 1,
       time: entry[3] || 0,
     }))
-    .filter((sub) => (contestLength !== Infinity ? sub.time <= contestLength : true))
     .sort((a, b) => a.time - b.time);
 
   orderedSubs.forEach((sub) => {
     const team = teams.get(sub.teamId);
     if (!team) return;
-    team.attempted = true;
-    team.submissions += 1;
+
     let problemRecord = team.problems.get(sub.problemId);
     if (!problemRecord) {
-      problemRecord = { wrong: 0, solved: false };
+      problemRecord = { wrong: 0, solved: false, upsolved: false };
       team.problems.set(sub.problemId, problemRecord);
     }
-    if (problemRecord.solved) return;
-    if (sub.accepted) {
-      problemRecord.solved = true;
-      problemRecord.time = sub.time;
-      team.solved += 1;
-      team.penalty += sub.time + problemRecord.wrong * PENALTY_PER_WRONG;
+
+    // STRICT IN-CONTEST ONLY: Submissions after contest length are upsolving
+    const isInContest = contestLength === Infinity || sub.time <= contestLength;
+
+    if (isInContest) {
+      team.attempted = true;
+      team.submissions += 1;
+      if (problemRecord.solved) return;
+      if (sub.accepted) {
+        problemRecord.solved = true;
+        problemRecord.time = sub.time;
+        team.solved += 1;
+        team.penalty += sub.time + problemRecord.wrong * PENALTY_PER_WRONG;
+      } else {
+        problemRecord.wrong += 1;
+      }
     } else {
-      problemRecord.wrong += 1;
+      // Upsolve submission: Do NOT count towards in-contest solved, penalty, or rank
+      if (!problemRecord.solved && !problemRecord.upsolved && sub.accepted) {
+        problemRecord.upsolved = true;
+        team.upsolved += 1;
+      }
     }
   });
 
+  // Only rank teams that actually attempted or solved problems during the official contest
   const ranked = Array.from(teams.values())
     .filter((team) => team.attempted || team.solved)
     .sort((a, b) => {
@@ -193,6 +216,7 @@ const buildRanklist = (rankData) => {
     time: `${team.penalty}`,
     submissions: team.submissions,
     aliases: team.aliases,
+    upsolved: team.upsolved,
   }));
 };
 

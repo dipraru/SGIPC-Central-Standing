@@ -209,7 +209,7 @@ const normalizeSearchStr = (value = "") =>
 // ── GET TFC Standings ────────────────────────────────────────────────────────
 router.get("/tfc/standings", async (req, res) => {
   try {
-    const contests = await TfcContest.find({ enabled: true }).lean();
+    const contests = await TfcContest.find({ enabled: true }).sort({ contestId: 1 }).lean();
     const participants = await TfcParticipant.find().lean();
     const errors = [];
 
@@ -278,7 +278,10 @@ router.get("/tfc/standings", async (req, res) => {
       })
     );
 
-    const validContests = contestPayloads.filter(Boolean);
+    // Strictly sort chronologically by contestId (Contest 1 -> Contest 2 -> ... -> Contest 14)
+    const validContests = contestPayloads
+      .filter(Boolean)
+      .sort((a, b) => Number(a.contestId) - Number(b.contestId));
 
     // Map each participant to a group entity for Elo calculation
     const tfcGroups = participants.map((p) => ({

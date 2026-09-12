@@ -399,6 +399,7 @@ export const buildEloStandings = (contestPayloads, teamGroups, mode = "normal") 
         losses: 0,
         draws: 0,
         contests: 0,
+        contestsHistory: [],
       };
       ratingState.set(group.id, record);
     }
@@ -428,6 +429,33 @@ export const buildEloStandings = (contestPayloads, teamGroups, mode = "normal") 
       if (!group?.excludedContests?.length) return false;
       return group.excludedContests.some((id) => Number(id) === Number(contestData.contestId));
     };
+
+    const totalContestParticipants = Array.isArray(contestData.ranklist) ? contestData.ranklist.length : 0;
+    const contestTitle = contestData.title || `TFC Contest #${contestData.contestId}`;
+
+    // Track participation history for all groups (including excluded)
+    for (const group of teamGroups) {
+      const match = findBestGroupMatch(group, contestData.ranklist, contestData.participants);
+      if (match?.entry) {
+        const record = ensureTeam(group);
+        if (record) {
+          const excluded = isExcludedForGroup(group);
+          const alreadyAdded = record.contestsHistory.some((c) => Number(c.contestId) === Number(contestData.contestId));
+          if (!alreadyAdded) {
+            record.contestsHistory.push({
+              contestId: contestData.contestId,
+              contestTitle,
+              solved: match.entry.solved ?? 0,
+              penalty: match.entry.penalty ?? 0,
+              rank: match.entry.rank,
+              totalParticipants: totalContestParticipants,
+              rankDisplay: `${match.entry.rank}/${totalContestParticipants}`,
+              excluded,
+            });
+          }
+        }
+      }
+    }
 
     const condensed = new Map();
     for (const group of teamGroups) {
@@ -528,6 +556,7 @@ export const buildEloStandings = (contestPayloads, teamGroups, mode = "normal") 
   return Array.from(ratingState.values())
     .map((record) => ({
       ...record,
+      contestsHistory: [...(record.contestsHistory || [])].sort((a, b) => Number(b.contestId) - Number(a.contestId)),
       ratingDisplay: formatRating(record.rating),
     }))
     .sort((a, b) => {
@@ -537,6 +566,7 @@ export const buildEloStandings = (contestPayloads, teamGroups, mode = "normal") 
     .map((record, index) => ({
       ...record,
       rank: index + 1,
+      globalRank: index + 1,
     }));
 };
 

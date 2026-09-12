@@ -1,12 +1,15 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   getStandings,
   getTfcStandings,
   getTfcParticipants,
   submitTfcRequest,
+  getTfcContestStandings,
 } from "../api.js";
 import { BatchSelect } from "../components/BatchSelect.jsx";
+import { BatchFilter } from "../components/BatchFilter.jsx";
+import { ContestHistoryModal } from "../components/ContestHistoryModal.jsx";
 import { computeBatchOptions, SortIcon } from "./Standings.jsx";
 
 // In-memory module cache to enable instant zero-flicker rehydration on back-navigation
@@ -126,6 +129,34 @@ const TfcCorner = () => {
     try { sessionStorage.setItem(TFC_STATE_KEYS.sortDir, sortDir); } catch {}
   }, [sortDir]);
 
+  // ── Contest History Modal State ───────────────────────────────────────────
+  const [contestHistoryTarget, setContestHistoryTarget] = useState(null);
+
+  // ── Single Contest Standings State ──────────────────────────────────────────
+  const [selectedContestId, setSelectedContestId] = useState("");
+  const [contestStandingsData, setContestStandingsData] = useState(null);
+  const [contestStandingsLoading, setContestStandingsLoading] = useState(false);
+  const [contestStandingsError, setContestStandingsError] = useState("");
+  const [contestSearchQuery, setContestSearchQuery] = useState("");
+  const [visibleStandingsCount, setVisibleStandingsCount] = useState(50);
+  const [visibleContestCount, setVisibleContestCount] = useState(50);
+  const contestStandingsCache = useRef({});
+
+  // Dynamic incremental row loading on scroll
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
+        if (activeTab === "standings") {
+          setVisibleStandingsCount((prev) => prev + 30);
+        } else if (activeTab === "contest_standings") {
+          setVisibleContestCount((prev) => prev + 30);
+        }
+      }
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [activeTab]);
+
   // Track scroll position per tab
   useEffect(() => {
     const handleScroll = () => {
@@ -162,6 +193,7 @@ const TfcCorner = () => {
   const [rDone, setRDone] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const [topNLimit, setTopNLimit] = useState(10);
+  const [publicMinParticipation, setPublicMinParticipation] = useState(0);
 
   // Fetch TFC Standings
   const fetchStandings = useCallback(async () => {
@@ -172,6 +204,14 @@ const TfcCorner = () => {
       memTfcContests = data.contests || [];
       if (typeof data.topNLimit === "number") {
         setTopNLimit(data.topNLimit);
+      }
+      if (data.config) {
+        if (typeof data.config.publicTopNLimit === "number") {
+          setTopNLimit(data.config.publicTopNLimit);
+        }
+        if (typeof data.config.publicMinParticipation === "number") {
+          setPublicMinParticipation(data.config.publicMinParticipation);
+        }
       }
       if (data.standingsByType) {
         setStandingsMap(data.standingsByType);
@@ -208,17 +248,86 @@ const TfcCorner = () => {
     getStandings().then((data) => setCentralStandings(data || [])).catch(() => {});
   }, [fetchStandings, fetchParticipants]);
 
+  // When contests list arrives, initialize selectedContestId if empty
+  useEffect(() => {
+    if (contests.length > 0 && !selectedContestId) {
+      setSelectedContestId(String(contests[0].contestId));
+    }
+  }, [contests, selectedContestId]);
+
+  // Fetch contest standings when selectedContestId changes
+  useEffect(() => {
+    if (!selectedContestId) return;
+    const cacheKey = String(selectedContestId);
+    if (contestStandingsCache.current[cacheKey]) {
+      setContestStandingsData(contestStandingsCache.current[cacheKey]);
+      setContestStandingsLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    setContestStandingsLoading(true);
+    setContestStandingsError("");
+
+    getTfcContestStandings(selectedContestId)
+      .then((data) => {
+        if (isMounted) {
+          contestStandingsCache.current[cacheKey] = data;
+          setContestStandingsData(data);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setContestStandingsError("Failed to load standings for this contest.");
+      })
+      .finally(() => {
+        if (isMounted) setContestStandingsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedContestId]);
+
+  const displayedContestStandings = useMemo(() => {
+    if (!contestStandingsData?.standings) return [];
+    let list = contestStandingsData.standings;
+    if (contestSearchQuery.trim()) {
+      const q = contestSearchQuery.trim().toLowerCase();
+      list = list.filter((item) => {
+        return (
+          (item.name && item.name.toLowerCase().includes(q)) ||
+          (item.roll && item.roll.toLowerCase().includes(q)) ||
+          (item.teamName && item.teamName.toLowerCase().includes(q)) ||
+          (item.codeforcesHandle && item.codeforcesHandle.toLowerCase().includes(q)) ||
+          (item.vjudgeHandles && item.vjudgeHandles.some((h) => h.toLowerCase().includes(q)))
+        );
+      });
+    }
+    return list;
+  }, [contestStandingsData, contestSearchQuery]);
+
   // Dynamic Batch options (combines central standings, TFC standings and participants)
   const formBatchOptions = useMemo(() => {
     return computeBatchOptions([...centralStandings, ...standings], participants, []);
   }, [centralStandings, standings, participants]);
 
+  const qualifiedStandingsList = useMemo(() => {
+    const raw = standingsMap[selectedType] || standings;
+    let list = raw.slice();
+    if (publicMinParticipation > 0) {
+      list = list.filter((p) => (p.contests || 0) >= publicMinParticipation);
+    }
+    list.sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0));
+    return list.map((p, idx) => ({
+      ...p,
+      globalRank: p.globalRank || p.rank,
+      rank: idx + 1,
+    }));
+  }, [standingsMap, selectedType, standings, publicMinParticipation]);
+
   const availableBatches = useMemo(() => {
     const s = new Set();
-    const raw = standingsMap[selectedType] || standings;
-    const source = activeTab === "standings"
-      ? (topNLimit > 0 ? raw.slice(0, topNLimit) : raw)
-      : participants;
+    const source = activeTab === "standings" ? qualifiedStandingsList : participants;
     source.forEach((r) => {
       const b = normalizeBatch(r.batch);
       if (b) s.add(b);
@@ -228,22 +337,38 @@ const TfcCorner = () => {
       const nb = parseInt(extractBatchDigits(b) || "0", 10);
       return nb - na;
     });
-  }, [activeTab, standingsMap, selectedType, standings, participants, topNLimit]);
+  }, [activeTab, qualifiedStandingsList, participants]);
 
-  // Filtered standings — strictly only global top N contestants configured by admin
+  // Filtered standings — when a batch is selected, show as true standings for that batch!
   const displayedStandings = useMemo(() => {
-    const rawList = standingsMap[selectedType] || standings;
-    // Only the participants that are globally in top N are visible
-    const topList = topNLimit > 0 ? rawList.slice(0, topNLimit) : rawList;
-    let list = topList.slice();
+    let list = qualifiedStandingsList.slice();
 
+    // 1. Batch filter: filter all qualified participants by selected batch(es) FIRST!
     if (selectedBatches.length > 0) {
       list = list.filter((r) => {
         const b = normalizeBatch(r.batch);
         return b && selectedBatches.includes(b);
       });
+      // Sort strictly by rating descending to form true standings for this batch
+      list.sort((a, b) => {
+        const diff = (Number(b.rating) || 0) - (Number(a.rating) || 0);
+        if (diff !== 0) return diff;
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      });
+      // Re-index rank so this batch is ranked #1, #2, #3...
+      list = list.map((r, idx) => ({
+        ...r,
+        batchRank: idx + 1,
+        rank: idx + 1,
+      }));
     }
 
+    // 2. Limit to top N of this standings (if configured)
+    if (topNLimit > 0) {
+      list = list.slice(0, topNLimit);
+    }
+
+    // 3. Search query filter
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter(
@@ -255,26 +380,29 @@ const TfcCorner = () => {
       );
     }
 
-    list.sort((a, b) => {
-      let valA = a[sortField];
-      let valB = b[sortField];
-      if (sortField === "rank" || sortField === "contests") {
-        valA = Number(valA) || 0;
-        valB = Number(valB) || 0;
-      } else if (sortField === "rating") {
-        valA = Number(a.rating) || 0;
-        valB = Number(b.rating) || 0;
-      } else {
-        valA = String(valA || "").toLowerCase();
-        valB = String(valB || "").toLowerCase();
-      }
-      if (valA < valB) return sortDir === "asc" ? -1 : 1;
-      if (valA > valB) return sortDir === "asc" ? 1 : -1;
-      return 0;
-    });
+    // 4. User column sort (if clicking headers)
+    if (sortField !== "rank" || sortDir !== "asc") {
+      list.sort((a, b) => {
+        let valA = a[sortField];
+        let valB = b[sortField];
+        if (sortField === "rank" || sortField === "contests") {
+          valA = Number(valA) || 0;
+          valB = Number(valB) || 0;
+        } else if (sortField === "rating") {
+          valA = Number(a.rating) || 0;
+          valB = Number(b.rating) || 0;
+        } else {
+          valA = String(valA || "").toLowerCase();
+          valB = String(valB || "").toLowerCase();
+        }
+        if (valA < valB) return sortDir === "asc" ? -1 : 1;
+        if (valA > valB) return sortDir === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
 
     return list;
-  }, [standingsMap, selectedType, standings, selectedBatches, searchQuery, sortField, sortDir]);
+  }, [qualifiedStandingsList, selectedBatches, topNLimit, searchQuery, sortField, sortDir]);
 
   // Filtered participants directory
   const displayedParticipants = useMemo(() => {
@@ -488,6 +616,13 @@ const TfcCorner = () => {
           🏆 TFC Standings
         </button>
         <button
+          className={`tab ${activeTab === "contest_standings" ? "active" : ""}`}
+          onClick={() => switchTab("contest_standings")}
+          style={{ fontSize: 14, fontWeight: 700 }}
+        >
+          🎯 Contest Standings
+        </button>
+        <button
           className={`tab ${activeTab === "directory" ? "active" : ""}`}
           onClick={() => switchTab("directory")}
           style={{ fontSize: 14, fontWeight: 700 }}
@@ -503,8 +638,20 @@ const TfcCorner = () => {
         <div className="card">
           <div className="card-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
             <div>
-              <h2>TFC Rankings</h2>
-              <p className="card-subtitle">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <h2 style={{ margin: 0 }}>TFC Rankings</h2>
+                {topNLimit > 0 && (
+                  <span className="badge" style={{ background: "rgba(99, 102, 241, 0.1)", color: "var(--primary)", border: "1px solid rgba(99, 102, 241, 0.25)", fontSize: 11 }}>
+                    Top {topNLimit}
+                  </span>
+                )}
+                {publicMinParticipation > 0 && (
+                  <span className="badge" style={{ background: "rgba(245, 158, 11, 0.12)", color: "#d97706", border: "1px solid rgba(245, 158, 11, 0.25)", fontSize: 11 }}>
+                    Min {publicMinParticipation} {publicMinParticipation === 1 ? "contest" : "contests"}
+                  </span>
+                )}
+              </div>
+              <p className="card-subtitle" style={{ marginTop: 4 }}>
                 {TFC_RANKING_TYPES.find((t) => t.id === selectedType)?.description || "Individual contest ratings from TFCs"}
               </p>
             </div>
@@ -560,24 +707,11 @@ const TfcCorner = () => {
           {/* Filter Bar */}
           {!loading && standings.length > 0 && (
             <div className="filter-bar">
-              <div className="filter-section">
-                <button className="secondary sm" onClick={() => setBatchFilterOpen(!batchFilterOpen)}>
-                  🎓 Batch
-                  {selectedBatches.length > 0 && (
-                    <span style={{ marginLeft: 5, background: "var(--primary)", color: "#fff", borderRadius: 999, padding: "0 6px", fontSize: 10, fontWeight: 700 }}>
-                      {selectedBatches.length}
-                    </span>
-                  )}
-                </button>
-                {selectedBatches.map((b) => (
-                  <span key={b} className="batch-tag" onClick={() => toggleBatch(b)}>
-                    {b} <span>×</span>
-                  </span>
-                ))}
-                {selectedBatches.length > 0 && (
-                  <button className="secondary sm" onClick={() => setSelectedBatches([])}>Clear</button>
-                )}
-              </div>
+              <BatchFilter
+                options={availableBatches}
+                selectedBatches={selectedBatches}
+                onChange={setSelectedBatches}
+              />
               <div style={{ width: "100%", maxWidth: 340 }}>
                 <div className="search-wrapper">
                   <span className="search-icon">🔍</span>
@@ -593,22 +727,6 @@ const TfcCorner = () => {
             </div>
           )}
 
-          {batchFilterOpen && availableBatches.length > 0 && (
-            <div className="batch-dropdown">
-              {availableBatches.map((b) => (
-                <label key={b} className={`batch-checkbox-label ${selectedBatches.includes(b) ? "selected" : ""}`}>
-                  <input
-                    type="checkbox"
-                    checked={selectedBatches.includes(b)}
-                    onChange={() => toggleBatch(b)}
-                    style={{ width: "auto", accentColor: "var(--primary)" }}
-                  />
-                  {b}
-                </label>
-              ))}
-            </div>
-          )}
-
           {loading && <div className="empty-state"><div className="loading-spinner" /><p>Loading TFC standings...</p></div>}
           {!loading && error && <div className="notice error">{error}</div>}
           {!loading && !error && displayedStandings.length === 0 && (
@@ -616,7 +734,8 @@ const TfcCorner = () => {
           )}
 
           {!loading && !error && displayedStandings.length > 0 && (
-            <table className="table">
+            <div style={{ overflowX: "auto" }}>
+              <table className="table">
               <thead>
                 <tr>
                   <th style={{ width: 50 }}>#</th>
@@ -634,9 +753,32 @@ const TfcCorner = () => {
                 </tr>
               </thead>
               <tbody>
-                {displayedStandings.map((row) => (
+                {displayedStandings.slice(0, visibleStandingsCount).map((row) => (
                   <tr key={row.id}>
-                    <td data-label="#"><div className={`rank-badge ${rankCls(row.rank)}`}>{row.rank}</div></td>
+                    <td data-label="#">
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <div
+                          className={`rank-badge ${rankCls(row.rank)}`}
+                          title={row.globalRank && row.globalRank !== row.rank ? `Configured Rank: #${row.rank} (Overall Global: #${row.globalRank})` : `Rank #${row.rank}`}
+                        >
+                          {row.rank}
+                        </div>
+                        {row.globalRank && row.globalRank !== row.rank && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              color: "var(--text-muted)",
+                              fontFamily: "var(--font-mono)",
+                              marginTop: 2,
+                              whiteSpace: "nowrap",
+                            }}
+                            title={`Overall Global Rank across all participants: #${row.globalRank}`}
+                          >
+                            (Global #{row.globalRank})
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td data-label="Contestant">
                       <div style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: 14 }}>
                         {row.name}
@@ -665,8 +807,30 @@ const TfcCorner = () => {
                         )}
                       </div>
                     </td>
-                    <td data-label="Contests" style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
-                      {row.contests}
+                    <td data-label="Contests">
+                      <button
+                        type="button"
+                        onClick={() => setContestHistoryTarget(row)}
+                        title={`Click to view ${row.name}'s contest history`}
+                        style={{
+                          background: "var(--bg-subtle)",
+                          border: "1px solid var(--border)",
+                          borderRadius: 999,
+                          padding: "3px 10px",
+                          fontFamily: "var(--font-mono)",
+                          fontWeight: 700,
+                          fontSize: 13,
+                          color: "var(--primary)",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <span>{row.contests}</span>
+                        <span style={{ fontSize: 10, opacity: 0.75 }}>↗</span>
+                      </button>
                     </td>
                     <td data-label="Rating">
                       <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--primary)", fontSize: 15 }}>
@@ -686,6 +850,317 @@ const TfcCorner = () => {
                 ))}
               </tbody>
             </table>
+
+            {displayedStandings.length > visibleStandingsCount && (
+              <div style={{ textAlign: "center", padding: "16px 0" }}>
+                <button
+                  type="button"
+                  className="secondary sm"
+                  onClick={() => setVisibleStandingsCount((c) => c + 50)}
+                  style={{ fontWeight: 600 }}
+                >
+                  Load More ({displayedStandings.length - visibleStandingsCount} remaining)
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )}
+
+      {/* ════════════════════════════════════════════════════════════════════
+          TAB: CONTEST STANDINGS (All Participants & Unadded Handles)
+          ════════════════════════════════════════════════════════════════════ */}
+      {activeTab === "contest_standings" && (
+        <div className="card">
+          <div className="card-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
+            <div>
+              <h2>Contest Standings</h2>
+              <p className="card-subtitle">
+                Inspect full standings for any individual TFC contest including all participants
+              </p>
+            </div>
+
+            {/* Contest Selector Dropdown & VJudge Link */}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <label style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>
+                Select Contest:
+              </label>
+              <select
+                value={selectedContestId}
+                onChange={(e) => {
+                  setSelectedContestId(e.target.value);
+                  setVisibleContestCount(50);
+                }}
+                style={{
+                  padding: "7px 14px",
+                  borderRadius: "var(--radius)",
+                  border: "1px solid var(--border)",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  minWidth: 260,
+                  maxWidth: 380,
+                  background: "var(--bg-input, var(--bg-card))",
+                  color: "var(--text-primary)",
+                  cursor: "pointer",
+                }}
+              >
+                {contests.map((c) => (
+                  <option key={c.contestId} value={c.contestId}>
+                    #{c.contestId} — {c.title || `Contest #${c.contestId}`} ({c.participantsCount || 0} participants)
+                  </option>
+                ))}
+              </select>
+
+              {selectedContestId && (
+                <a
+                  href={`https://vjudge.net/contest/${selectedContestId}#rank`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="secondary sm"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontWeight: 700,
+                    borderColor: "rgba(59, 130, 246, 0.4)",
+                    color: "var(--primary)",
+                    textDecoration: "none",
+                    padding: "6px 12px",
+                  }}
+                  title="View original contest standings on VJudge"
+                >
+                  <span>🌐 Open VJudge</span>
+                  <span style={{ fontSize: 11 }}>↗</span>
+                </a>
+              )}
+            </div>
+          </div>
+
+          {/* Stats Bar & Search */}
+          <div className="filter-bar" style={{ gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            {contestStandingsData && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <span
+                  style={{
+                    background: "var(--bg-subtle)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 999,
+                    padding: "3px 10px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  👥 <strong>{contestStandingsData.totalParticipants}</strong> Total
+                </span>
+                <span
+                  style={{
+                    background: "rgba(16, 185, 129, 0.1)",
+                    border: "1px solid rgba(16, 185, 129, 0.2)",
+                    borderRadius: 999,
+                    padding: "3px 10px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--success)",
+                  }}
+                >
+                  ✓ <strong>{contestStandingsData.registeredCount}</strong> Added in TFC
+                </span>
+                {contestStandingsData.unregisteredCount > 0 && (
+                  <span
+                    style={{
+                      background: "rgba(245, 158, 11, 0.1)",
+                      border: "1px solid rgba(245, 158, 11, 0.2)",
+                      borderRadius: 999,
+                      padding: "3px 10px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "#d97706",
+                    }}
+                  >
+                    ⚠ <strong>{contestStandingsData.unregisteredCount}</strong> Unadded
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div style={{ width: "100%", maxWidth: 320, marginLeft: "auto" }}>
+              <div className="search-wrapper">
+                <span className="search-icon">🔍</span>
+                <input
+                  type="text"
+                  placeholder="Search contestant, roll, handle..."
+                  value={contestSearchQuery}
+                  onChange={(e) => setContestSearchQuery(e.target.value)}
+                />
+                {contestSearchQuery && (
+                  <button className="search-clear" onClick={() => setContestSearchQuery("")}>×</button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {contestStandingsLoading && (
+            <div className="empty-state">
+              <div className="loading-spinner" />
+              <p>Loading contest standings...</p>
+            </div>
+          )}
+
+          {!contestStandingsLoading && contestStandingsError && (
+            <div className="notice error">{contestStandingsError}</div>
+          )}
+
+          {!contestStandingsLoading && !contestStandingsError && displayedContestStandings.length === 0 && (
+            <div className="empty-state">
+              <p>{contestSearchQuery ? "No contestants match your search." : "No standings recorded for this contest."}</p>
+            </div>
+          )}
+
+          {!contestStandingsLoading && !contestStandingsError && displayedContestStandings.length > 0 && (
+            <div className="vjudge-table-container">
+              <table className="vjudge-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 65, textAlign: "center" }}>Rank</th>
+                    <th>Team / Contestant</th>
+                    <th style={{ width: 90, textAlign: "center" }}>Score</th>
+                    <th style={{ width: 120, textAlign: "right" }}>Penalty</th>
+                    <th style={{ width: 100, textAlign: "center" }}>Tries</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayedContestStandings.slice(0, visibleContestCount).map((row, idx) => (
+                    <tr
+                      key={`${row.teamName}-${idx}`}
+                      style={{ background: !row.isRegistered ? "rgba(245, 158, 11, 0.03)" : undefined }}
+                    >
+                      <td style={{ textAlign: "center" }}>
+                        <div
+                          className={`vjudge-rank-badge ${
+                            row.rank === 1 ? "rank-1" : row.rank === 2 ? "rank-2" : row.rank === 3 ? "rank-3" : "rank-other"
+                          }`}
+                        >
+                          {row.rank === 1 ? "👑 1" : `#${row.rank}`}
+                        </div>
+                      </td>
+                      <td>
+                        {row.isRegistered ? (
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <strong style={{ fontSize: 14, color: "var(--text-primary)" }}>
+                                {row.name}
+                              </strong>
+                              {row.batch && (
+                                <span className="badge" style={{ padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>
+                                  {normalizeBatch(row.batch) || row.batch}
+                                </span>
+                              )}
+                              <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                                Roll: {row.roll || "—"}
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4, alignItems: "center" }}>
+                              <a
+                                href={`https://vjudge.net/user/${encodeURIComponent(row.teamName)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="vjudge-handle-link"
+                                title="Open VJudge user profile"
+                              >
+                                <span>VJ: {row.teamName}</span>
+                                <span style={{ fontSize: 9 }}>↗</span>
+                              </a>
+                              {row.codeforcesHandle && (
+                                <a
+                                  href={`https://codeforces.com/profile/${encodeURIComponent(row.codeforcesHandle)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    fontSize: 11,
+                                    color: "var(--text-secondary)",
+                                    textDecoration: "none",
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  CF: {row.codeforcesHandle} ↗
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <a
+                                href={`https://vjudge.net/user/${encodeURIComponent(row.teamName)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  fontWeight: 700,
+                                  fontFamily: "var(--font-mono)",
+                                  fontSize: 14,
+                                  color: "#d97706",
+                                  textDecoration: "none",
+                                }}
+                                title="Open VJudge user profile"
+                              >
+                                {row.teamName} ↗
+                              </a>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: "#d97706",
+                                  background: "rgba(245, 158, 11, 0.12)",
+                                  padding: "1px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid rgba(245, 158, 11, 0.25)",
+                                }}
+                              >
+                                Not Added Yet
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                              VJudge Handle (not in TFC participant database)
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <div className={`vjudge-solved-badge ${row.solved === 0 ? "zero" : ""}`}>
+                          {row.solved}
+                        </div>
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <div className="vjudge-penalty-text">
+                          {Math.round(row.penalty).toLocaleString()}
+                        </div>
+                        <div className="vjudge-penalty-sub">
+                          ({Math.floor(row.penalty / 60)}m)
+                        </div>
+                      </td>
+                      <td style={{ textAlign: "center", fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>
+                        {row.submissions || 0}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {displayedContestStandings.length > visibleContestCount && (
+                <div style={{ textAlign: "center", padding: "16px 0" }}>
+                  <button
+                    type="button"
+                    className="secondary sm"
+                    onClick={() => setVisibleContestCount((c) => c + 50)}
+                    style={{ fontWeight: 600 }}
+                  >
+                    Load More ({displayedContestStandings.length - visibleContestCount} remaining)
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -707,24 +1182,11 @@ const TfcCorner = () => {
           {/* Filter Bar */}
           {participants.length > 0 && (
             <div className="filter-bar">
-              <div className="filter-section">
-                <button className="secondary sm" onClick={() => setBatchFilterOpen(!batchFilterOpen)}>
-                  🎓 Batch
-                  {selectedBatches.length > 0 && (
-                    <span style={{ marginLeft: 5, background: "var(--primary)", color: "#fff", borderRadius: 999, padding: "0 6px", fontSize: 10, fontWeight: 700 }}>
-                      {selectedBatches.length}
-                    </span>
-                  )}
-                </button>
-                {selectedBatches.map((b) => (
-                  <span key={b} className="batch-tag" onClick={() => toggleBatch(b)}>
-                    {b} <span>×</span>
-                  </span>
-                ))}
-                {selectedBatches.length > 0 && (
-                  <button className="secondary sm" onClick={() => setSelectedBatches([])}>Clear</button>
-                )}
-              </div>
+              <BatchFilter
+                options={availableBatches}
+                selectedBatches={selectedBatches}
+                onChange={setSelectedBatches}
+              />
               <div style={{ width: "100%", maxWidth: 340 }}>
                 <div className="search-wrapper">
                   <span className="search-icon">🔍</span>
@@ -737,22 +1199,6 @@ const TfcCorner = () => {
                   {searchQuery && <button className="search-clear" onClick={() => setSearchQuery("")}>×</button>}
                 </div>
               </div>
-            </div>
-          )}
-
-          {batchFilterOpen && availableBatches.length > 0 && (
-            <div className="batch-dropdown">
-              {availableBatches.map((b) => (
-                <label key={b} className={`batch-checkbox-label ${selectedBatches.includes(b) ? "selected" : ""}`}>
-                  <input
-                    type="checkbox"
-                    checked={selectedBatches.includes(b)}
-                    onChange={() => toggleBatch(b)}
-                    style={{ width: "auto", accentColor: "var(--primary)" }}
-                  />
-                  {b}
-                </label>
-              ))}
             </div>
           )}
 
@@ -1141,6 +1587,13 @@ const TfcCorner = () => {
           </div>
         </div>
       )}
+
+      {/* Contest History Breakdown Modal */}
+      <ContestHistoryModal
+        isOpen={Boolean(contestHistoryTarget)}
+        onClose={() => setContestHistoryTarget(null)}
+        contestant={contestHistoryTarget}
+      />
     </div>
   );
 };

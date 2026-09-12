@@ -175,6 +175,11 @@ export const getTfcStandings = async (params) => {
   return data;
 };
 
+export const getTfcContestStandings = async (contestId) => {
+  const { data } = await api.get(`/tfc/contests/${contestId}/standings`);
+  return data;
+};
+
 export const getTfcParticipants = async () => {
   const { data } = await api.get("/tfc/participants");
   return data;

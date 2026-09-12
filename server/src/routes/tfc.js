@@ -1,4 +1,5 @@
 import express from "express";
+import mongoose from "mongoose";
 import axios from "axios";
 import bcrypt from "bcryptjs";
 import { TfcParticipant } from "../models/TfcParticipant.js";
@@ -202,6 +203,9 @@ export const fetchPlaylistVideos = async (playlistId) => {
   return entries;
 };
 
+const normalizeSearchStr = (value = "") =>
+  String(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+
 // ── GET TFC Standings ────────────────────────────────────────────────────────
 router.get("/tfc/standings", async (req, res) => {
   try {
@@ -210,7 +214,18 @@ router.get("/tfc/standings", async (req, res) => {
     const errors = [];
 
     const tfcConfig = await TfcConfig.findOne().lean();
-    const topNLimit = typeof tfcConfig?.topNLimit === "number" ? tfcConfig.topNLimit : 10;
+    const publicTopNLimit = tfcConfig?.publicTopNLimit !== undefined ? tfcConfig.publicTopNLimit : (tfcConfig?.topNLimit ?? 10);
+    const publicMinParticipation = tfcConfig?.publicMinParticipation ?? 0;
+    const adminTopNLimit = tfcConfig?.adminTopNLimit ?? 0;
+    const adminMinParticipation = tfcConfig?.adminMinParticipation ?? 0;
+    const topNLimit = publicTopNLimit;
+    const configPayload = {
+      topNLimit,
+      publicTopNLimit,
+      publicMinParticipation,
+      adminTopNLimit,
+      adminMinParticipation,
+    };
 
     if (!contests.length || !participants.length) {
       return res.json({
@@ -222,6 +237,7 @@ router.get("/tfc/standings", async (req, res) => {
           "gain-only": [],
           "zero-participation": [],
         },
+        config: configPayload,
         topNLimit,
         errors: [],
       });
@@ -230,24 +246,8 @@ router.get("/tfc/standings", async (req, res) => {
     const contestPayloads = await Promise.all(
       contests.map(async (contest) => {
         try {
-          // If we already have ranklist cached in MongoDB:
+          // If we already have ranklist cached in MongoDB, use it immediately (zero blocking delay)
           if (contest.ranklist && Array.isArray(contest.ranklist) && contest.ranklist.length > 0) {
-            const ageMs = contest.lastFetchedAt
-              ? Date.now() - new Date(contest.lastFetchedAt).getTime()
-              : Infinity;
-
-            // If older than 15 minutes, try non-blocking background refresh
-            if (ageMs > 15 * 60 * 1000) {
-              try {
-                const fresh = await syncContestRank(TfcContest, contest);
-                if (fresh && !fresh.error && fresh.ranklist) {
-                  return { ...fresh, contestId: contest.contestId };
-                }
-              } catch (e) {
-                // Ignore background refresh failure, use cache
-              }
-            }
-
             return {
               contestId: contest.contestId,
               title: contest.title || `TFC Contest #${contest.contestId}`,
@@ -317,8 +317,18 @@ router.get("/tfc/standings", async (req, res) => {
         ? zeroPartStandings
         : normalStandings;
 
+    // Send lightweight contest summaries instead of multi-megabyte raw ranklist and participants objects
+    const compactContests = contests.map((c) => ({
+      _id: c._id,
+      contestId: c.contestId,
+      title: c.title || `TFC Contest #${c.contestId}`,
+      enabled: c.enabled,
+      lastFetchedAt: c.lastFetchedAt,
+      participantsCount: Array.isArray(c.ranklist) ? c.ranklist.length : 0,
+    }));
+
     return res.json({
-      contests,
+      contests: compactContests,
       participants,
       standings: activeStandings,
       standingsByType: {
@@ -326,12 +336,130 @@ router.get("/tfc/standings", async (req, res) => {
         "gain-only": gainOnlyStandings,
         "zero-participation": zeroPartStandings,
       },
+      config: configPayload,
       topNLimit,
       errors,
     });
   } catch (err) {
     console.error("TFC standings error:", err);
     return res.status(500).json({ message: "Failed to calculate TFC standings" });
+  }
+});
+
+// ── GET Single TFC Contest Standings (Full Ranklist with Added & Unadded handles) ──
+router.get("/tfc/contests/:contestId/standings", async (req, res) => {
+  try {
+    const { contestId } = req.params;
+    const numId = Number(contestId);
+    let contest = null;
+    if (numId && !isNaN(numId)) {
+      contest = await TfcContest.findOne({ contestId: numId }).lean();
+    }
+    if (!contest && mongoose.isValidObjectId(contestId)) {
+      contest = await TfcContest.findById(contestId).lean();
+    }
+
+    if (!contest) {
+      return res.status(404).json({ message: "TFC contest not found." });
+    }
+
+    // If ranklist is not yet in DB, fetch once
+    if (!contest.ranklist || !Array.isArray(contest.ranklist) || contest.ranklist.length === 0) {
+      const syncRes = await syncContestRank(TfcContest, contest);
+      if (syncRes && !syncRes.error && syncRes.ranklist) {
+        contest.ranklist = syncRes.ranklist;
+        contest.title = syncRes.title || contest.title;
+      }
+    }
+
+    const participants = await TfcParticipant.find().lean();
+
+    // Map each registered participant with normalized aliases for high-performance lookup
+    const registeredList = participants.map((p) => {
+      const aliasSet = new Set();
+      if (p.name) aliasSet.add(normalizeSearchStr(p.name));
+      if (p.roll) aliasSet.add(normalizeSearchStr(p.roll));
+      if (Array.isArray(p.vjudgeHandles)) {
+        p.vjudgeHandles.forEach((h) => aliasSet.add(normalizeSearchStr(h)));
+      }
+      return {
+        participant: p,
+        aliasSet,
+      };
+    });
+
+    const ranklist = Array.isArray(contest.ranklist) ? contest.ranklist : [];
+    let registeredCount = 0;
+    let unregisteredCount = 0;
+
+    const enrichedStandings = ranklist.map((entry) => {
+      const candidateAliases = [
+        entry.team_name,
+        entry.teamName,
+        entry.username,
+        entry.userName,
+        ...(entry.aliases || []),
+      ]
+        .filter(Boolean)
+        .map((a) => normalizeSearchStr(a));
+
+      const matched = registeredList.find((reg) =>
+        candidateAliases.some((alias) => reg.aliasSet.has(alias))
+      );
+
+      if (matched) {
+        registeredCount++;
+        const p = matched.participant;
+        return {
+          rank: entry.rank,
+          solved: entry.solved ?? 0,
+          penalty: entry.penalty ?? 0,
+          submissions: entry.submissions ?? 0,
+          teamName: entry.team_name || entry.username || `Team ${entry.team_id}`,
+          isRegistered: true,
+          participantId: p._id,
+          name: p.name,
+          roll: p.roll,
+          batch: p.batch,
+          codeforcesHandle: p.codeforcesHandle || "",
+          vjudgeHandles: p.vjudgeHandles || [],
+          playlistUrl: p.playlistUrl || "",
+        };
+      } else {
+        unregisteredCount++;
+        return {
+          rank: entry.rank,
+          solved: entry.solved ?? 0,
+          penalty: entry.penalty ?? 0,
+          submissions: entry.submissions ?? 0,
+          teamName: entry.team_name || entry.username || `Team ${entry.team_id}`,
+          isRegistered: false,
+          participantId: null,
+          name: null,
+          roll: null,
+          batch: null,
+          codeforcesHandle: "",
+          vjudgeHandles: [],
+          playlistUrl: "",
+        };
+      }
+    });
+
+    return res.json({
+      contest: {
+        _id: contest._id,
+        contestId: contest.contestId,
+        title: contest.title || `TFC Contest #${contest.contestId}`,
+        lastFetchedAt: contest.lastFetchedAt,
+      },
+      totalParticipants: ranklist.length,
+      registeredCount,
+      unregisteredCount,
+      standings: enrichedStandings,
+    });
+  } catch (err) {
+    console.error("Contest standings error:", err);
+    return res.status(500).json({ message: "Failed to load contest standings." });
   }
 });
 

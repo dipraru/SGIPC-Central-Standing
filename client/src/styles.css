@@ -1358,5 +1358,147 @@ select option { background: #fff; }
   font-family: var(--font-mono);
 }
 
+/* ═══════════════════════════════════════════════
+   VJUDGE-STYLE CONTEST STANDINGS TABLE
+   ═══════════════════════════════════════════════ */
+.vjudge-table-container {
+  overflow-x: auto;
+  border-radius: var(--radius, 8px);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
 
+.vjudge-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
 
+.vjudge-table thead th {
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.vjudge-table tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.vjudge-table tbody tr {
+  transition: background-color 0.12s ease;
+}
+
+.vjudge-table tbody tr:hover {
+  background-color: var(--bg-subtle) !important;
+}
+
+.vjudge-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.vjudge-rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-weight: 800;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.vjudge-rank-badge.rank-1 {
+  background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.35);
+}
+
+.vjudge-rank-badge.rank-2 {
+  background: linear-gradient(135deg, #cbd5e1 0%, #64748b 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(100, 116, 139, 0.25);
+}
+
+.vjudge-rank-badge.rank-3 {
+  background: linear-gradient(135deg, #fbcfe8 0%, #db2777 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(219, 39, 119, 0.25);
+}
+
+.vjudge-rank-badge.rank-other {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.vjudge-solved-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-weight: 800;
+  font-size: 15px;
+  font-family: var(--font-mono);
+  background: rgba(16, 185, 129, 0.14);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.vjudge-solved-badge.zero {
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  border-color: var(--border);
+  font-weight: 600;
+}
+
+.vjudge-penalty-text {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.vjudge-penalty-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.vjudge-handle-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+  padding: 2px 7px;
+  transition: all 0.15s ease;
+}
+
+.vjudge-handle-link:hover {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: var(--primary);
+}

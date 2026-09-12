@@ -216,7 +216,14 @@ router.get("/tfc/participation-matrix", authRequired, async (req, res) => {
       };
     });
 
-    return res.json({ contests, matrix });
+    const compactContests = contests.map((c) => ({
+      _id: c._id,
+      contestId: c.contestId,
+      title: c.title || `Contest #${c.contestId}`,
+      enabled: c.enabled,
+    }));
+
+    return res.json({ contests: compactContests, matrix });
   } catch (err) {
     console.error("Participation matrix error:", err);
     return res.status(500).json({ message: "Failed to load participation matrix" });
@@ -338,8 +345,24 @@ router.delete("/tfc/participants/:id", authRequired, async (req, res) => {
 // ── TFC Contests ─────────────────────────────────────────────────────────────
 router.get("/tfc/contests", authRequired, async (req, res) => {
   try {
-    const contests = await TfcContest.find().sort({ contestId: 1 }).lean();
-    return res.json(contests);
+    const contests = await TfcContest.find()
+      .select("contestId title enabled lastFetchedAt fetchStatus fetchError ranklist")
+      .sort({ contestId: 1 })
+      .lean();
+    const mapped = contests.map((c) => {
+      const len = Array.isArray(c.ranklist) ? c.ranklist.length : 0;
+      return {
+        _id: c._id,
+        contestId: c.contestId,
+        title: c.title,
+        enabled: c.enabled,
+        lastFetchedAt: c.lastFetchedAt,
+        fetchStatus: c.fetchStatus,
+        fetchError: c.fetchError,
+        ranklist: len > 0 ? new Array(len) : null,
+      };
+    });
+    return res.json(mapped);
   } catch (err) {
     return res.status(500).json({ message: "Failed to load TFC contests" });
   }
@@ -535,9 +558,26 @@ router.get("/tfc/config", authRequired, async (req, res) => {
   try {
     let config = await TfcConfig.findOne().lean();
     if (!config) {
-      config = await TfcConfig.create({ topNLimit: 10 });
+      config = await TfcConfig.create({
+        topNLimit: 10,
+        publicTopNLimit: 10,
+        publicMinParticipation: 0,
+        adminTopNLimit: 0,
+        adminMinParticipation: 0,
+      });
     }
-    return res.json({ topNLimit: config.topNLimit || 10 });
+    const publicTopNLimit = config.publicTopNLimit !== undefined ? config.publicTopNLimit : (config.topNLimit || 10);
+    const publicMinParticipation = config.publicMinParticipation || 0;
+    const adminTopNLimit = config.adminTopNLimit || 0;
+    const adminMinParticipation = config.adminMinParticipation || 0;
+
+    return res.json({
+      topNLimit: publicTopNLimit,
+      publicTopNLimit,
+      publicMinParticipation,
+      adminTopNLimit,
+      adminMinParticipation,
+    });
   } catch (err) {
     return res.status(500).json({ message: "Failed to fetch TFC config" });
   }
@@ -545,16 +585,46 @@ router.get("/tfc/config", authRequired, async (req, res) => {
 
 router.patch("/tfc/config", authRequired, async (req, res) => {
   try {
-    const { topNLimit } = req.body;
-    const limit = Math.max(0, parseInt(topNLimit, 10) || 10);
+    const { topNLimit, publicTopNLimit, publicMinParticipation, adminTopNLimit, adminMinParticipation } = req.body;
+
     let config = await TfcConfig.findOne();
     if (!config) {
-      config = await TfcConfig.create({ topNLimit: limit });
-    } else {
-      config.topNLimit = limit;
-      await config.save();
+      config = new TfcConfig({});
     }
-    return res.json({ message: "TFC configuration updated successfully", topNLimit: config.topNLimit });
+
+    if (publicTopNLimit !== undefined) {
+      config.publicTopNLimit = Math.max(0, parseInt(publicTopNLimit, 10) || 0);
+      config.topNLimit = config.publicTopNLimit;
+    } else if (topNLimit !== undefined) {
+      config.topNLimit = Math.max(0, parseInt(topNLimit, 10) || 0);
+      config.publicTopNLimit = config.topNLimit;
+    }
+
+    if (publicMinParticipation !== undefined) {
+      config.publicMinParticipation = Math.max(0, parseInt(publicMinParticipation, 10) || 0);
+    }
+
+    if (adminTopNLimit !== undefined) {
+      config.adminTopNLimit = Math.max(0, parseInt(adminTopNLimit, 10) || 0);
+    }
+
+    if (adminMinParticipation !== undefined) {
+      config.adminMinParticipation = Math.max(0, parseInt(adminMinParticipation, 10) || 0);
+    }
+
+    await config.save();
+
+    return res.json({
+      message: "TFC configuration updated successfully",
+      config: {
+        topNLimit: config.publicTopNLimit,
+        publicTopNLimit: config.publicTopNLimit,
+        publicMinParticipation: config.publicMinParticipation,
+        adminTopNLimit: config.adminTopNLimit,
+        adminMinParticipation: config.adminMinParticipation,
+      },
+      topNLimit: config.publicTopNLimit,
+    });
   } catch (err) {
     return res.status(500).json({ message: "Failed to update TFC config" });
   }

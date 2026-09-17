@@ -103,35 +103,39 @@ const TEAM_RANKING_TYPES = [
 ];
 
 // ─── Sort Indicator Component ────────────────────────────────────────────────
-export const SortIcon = ({ active, direction }) => (
-  <span
-    className={`sort-icon ${active ? "active" : ""}`}
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      verticalAlign: "middle",
-      marginLeft: 6,
-      opacity: active ? 1 : 0.4,
-      transition: "all 0.15s ease",
-      height: 14,
-      width: 10,
-    }}
-  >
-    <svg width="10" height="14" viewBox="0 0 10 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M5 1L1.5 5H8.5L5 1Z"
-        fill={active && direction === "asc" ? "var(--primary)" : "currentColor"}
-        opacity={active && direction === "desc" ? 0.25 : 1}
-      />
-      <path
-        d="M5 13L8.5 9H1.5L5 13Z"
-        fill={active && direction === "desc" ? "var(--primary)" : "currentColor"}
-        opacity={active && direction === "asc" ? 0.25 : 1}
-      />
-    </svg>
-  </span>
-);
+export const SortIcon = ({ active, direction, field, sortField, sortDir }) => {
+  const isActive = active !== undefined ? active : (field && sortField ? field === sortField : false);
+  const dir = direction !== undefined ? direction : sortDir;
+  return (
+    <span
+      className={`sort-icon ${isActive ? "active" : ""}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        verticalAlign: "middle",
+        marginLeft: 6,
+        opacity: isActive ? 1 : 0.4,
+        transition: "all 0.15s ease",
+        height: 14,
+        width: 10,
+      }}
+    >
+      <svg width="10" height="14" viewBox="0 0 10 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path
+          d="M5 1L1.5 5H8.5L5 1Z"
+          fill={isActive && dir === "asc" ? "var(--primary)" : "currentColor"}
+          opacity={isActive && dir === "desc" ? 0.25 : 1}
+        />
+        <path
+          d="M5 13L8.5 9H1.5L5 13Z"
+          fill={isActive && dir === "desc" ? "var(--primary)" : "currentColor"}
+          opacity={isActive && dir === "asc" ? 0.25 : 1}
+        />
+      </svg>
+    </span>
+  );
+};
 
 // ─── Empty team member ────────────────────────────────────────────────────────
 const emptyMember = () => ({ handle: "", name: "", roll: "", batch: "" });
@@ -219,11 +223,16 @@ const Standings = () => {
   const [sortDir,   setSortDir]   = useState('desc');
 
   const handleSortClick = (field) => {
-    if (sortField === field) {
-      setSortDir((prev) => (prev === 'desc' ? 'asc' : 'desc'));
-    } else {
+    const defaultDir = field === 'handle' ? 'asc' : 'desc';
+    const oppositeDir = defaultDir === 'desc' ? 'asc' : 'desc';
+    if (sortField !== field) {
       setSortField(field);
-      setSortDir(field === 'handle' ? 'asc' : 'desc');
+      setSortDir(defaultDir);
+    } else if (sortDir === defaultDir) {
+      setSortDir(oppositeDir);
+    } else {
+      setSortField(null);
+      setSortDir('desc');
     }
   };
 

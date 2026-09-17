@@ -6,9 +6,25 @@ import { TfcContest } from "../models/TfcContest.js";
 import { TfcRequest } from "../models/TfcRequest.js";
 import { TfcReport } from "../models/TfcReport.js";
 import { TfcConfig } from "../models/TfcConfig.js";
+import { HandleMeta } from "../models/HandleMeta.js";
+import { getUserInfo } from "../services/codeforces.js";
 import { fetchContestRank, findBestGroupMatch, syncContestRank } from "../services/vjudge.js";
 
 const router = express.Router();
+
+const resolveCfMaxRating = async (cfHandle) => {
+  if (!cfHandle) return 0;
+  const clean = String(cfHandle).trim();
+  if (!clean) return 0;
+  try {
+    const meta = await HandleMeta.findOne({ handle: new RegExp(`^${clean}$`, "i") }).lean();
+    if (meta?.maxRating) return meta.maxRating;
+    const u = await getUserInfo(clean);
+    return u?.maxRating || 0;
+  } catch (_) {
+    return 0;
+  }
+};
 
 const authRequired = (req, res, next) => {
   const header = req.headers.authorization || "";
@@ -46,11 +62,13 @@ router.post("/tfc/requests/approve-all", authRequired, async (req, res) => {
     let count = 0;
     for (const request of pendingRequests) {
       let participant = await TfcParticipant.findOne({ roll: request.roll });
+      const cfMaxRating = await resolveCfMaxRating(request.codeforcesHandle);
       if (participant) {
         participant.name = request.name;
         participant.batch = request.batch;
         participant.vjudgeHandles = request.vjudgeHandles;
         participant.codeforcesHandle = request.codeforcesHandle;
+        participant.cfMaxRating = cfMaxRating || participant.cfMaxRating || 0;
         participant.otherOjs = request.otherOjs;
         participant.playlistUrl = request.playlistUrl;
         await participant.save();
@@ -61,6 +79,7 @@ router.post("/tfc/requests/approve-all", authRequired, async (req, res) => {
           batch: request.batch,
           vjudgeHandles: request.vjudgeHandles,
           codeforcesHandle: request.codeforcesHandle,
+          cfMaxRating,
           otherOjs: request.otherOjs,
           playlistUrl: request.playlistUrl,
         });
@@ -87,11 +106,13 @@ router.post("/tfc/requests/:id/approve", authRequired, async (req, res) => {
 
     // Check if participant with roll already exists, update or create
     let participant = await TfcParticipant.findOne({ roll: request.roll });
+    const cfMaxRating = await resolveCfMaxRating(request.codeforcesHandle);
     if (participant) {
       participant.name = request.name;
       participant.batch = request.batch;
       participant.vjudgeHandles = request.vjudgeHandles;
       participant.codeforcesHandle = request.codeforcesHandle;
+      participant.cfMaxRating = cfMaxRating || participant.cfMaxRating || 0;
       participant.otherOjs = request.otherOjs;
       participant.playlistUrl = request.playlistUrl;
       await participant.save();
@@ -102,6 +123,7 @@ router.post("/tfc/requests/:id/approve", authRequired, async (req, res) => {
         batch: request.batch,
         vjudgeHandles: request.vjudgeHandles,
         codeforcesHandle: request.codeforcesHandle,
+        cfMaxRating,
         otherOjs: request.otherOjs,
         playlistUrl: request.playlistUrl,
       });
@@ -282,12 +304,16 @@ router.post("/tfc/participants", authRequired, async (req, res) => {
       ? vjudgeHandles.split(",").map((h) => h.trim()).filter(Boolean)
       : [];
 
+    const cleanCfHandle = (codeforcesHandle || "").trim();
+    const cfMaxRating = await resolveCfMaxRating(cleanCfHandle);
+
     const participant = await TfcParticipant.create({
       name: name.trim(),
       roll: roll.trim(),
       batch: batch.trim().toUpperCase(),
       vjudgeHandles: cleanHandles,
-      codeforcesHandle: (codeforcesHandle || "").trim(),
+      codeforcesHandle: cleanCfHandle,
+      cfMaxRating,
       otherOjs: Array.isArray(otherOjs) ? otherOjs : [],
       playlistUrl: (playlistUrl || "").trim(),
     });
@@ -309,7 +335,10 @@ router.patch("/tfc/participants/:id", authRequired, async (req, res) => {
         ? vjudgeHandles.map((h) => h.trim()).filter(Boolean)
         : String(vjudgeHandles).split(",").map((h) => h.trim()).filter(Boolean);
     }
-    if (codeforcesHandle !== undefined) updateData.codeforcesHandle = codeforcesHandle.trim();
+    if (codeforcesHandle !== undefined) {
+      updateData.codeforcesHandle = codeforcesHandle.trim();
+      updateData.cfMaxRating = await resolveCfMaxRating(codeforcesHandle);
+    }
     if (otherOjs !== undefined) updateData.otherOjs = Array.isArray(otherOjs) ? otherOjs : [];
     if (playlistUrl !== undefined) updateData.playlistUrl = playlistUrl.trim();
 

@@ -385,7 +385,7 @@ const TfcCorner = () => {
       list.sort((a, b) => {
         let valA = a[sortField];
         let valB = b[sortField];
-        if (sortField === "rank" || sortField === "contests") {
+        if (sortField === "rank" || sortField === "contests" || sortField === "cfMaxRating") {
           valA = Number(valA) || 0;
           valB = Number(valB) || 0;
         } else if (sortField === "rating") {
@@ -397,7 +397,7 @@ const TfcCorner = () => {
         }
         if (valA < valB) return sortDir === "asc" ? -1 : 1;
         if (valA > valB) return sortDir === "asc" ? 1 : -1;
-        return 0;
+        return (Number(a.rank) || 0) - (Number(b.rank) || 0);
       });
     }
 
@@ -451,11 +451,16 @@ const TfcCorner = () => {
   }, [activeTab, loading, displayedStandings.length, participantsLoading, participants.length]);
 
   const handleSortClick = (field) => {
-    if (sortField === field) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
+    const defaultDir = (field === "name" || field === "rank") ? "asc" : "desc";
+    const oppositeDir = defaultDir === "desc" ? "asc" : "desc";
+    if (sortField !== field) {
       setSortField(field);
-      setSortDir(field === "rating" ? "desc" : "asc");
+      setSortDir(defaultDir);
+    } else if (sortDir === defaultDir) {
+      setSortDir(oppositeDir);
+    } else {
+      setSortField("rank");
+      setSortDir("asc");
     }
   };
 
@@ -738,11 +743,16 @@ const TfcCorner = () => {
               <table className="table">
               <thead>
                 <tr>
-                  <th style={{ width: 50 }}>#</th>
+                  <th style={{ width: 50, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("rank")}>
+                    # <SortIcon active={sortField === "rank" && sortDir === "desc"} direction={sortDir} />
+                  </th>
                   <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("name")}>
                     Contestant / Roll <SortIcon active={sortField === "name"} direction={sortDir} />
                   </th>
                   <th>Handles</th>
+                  <th style={{ width: 105, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("cfMaxRating")}>
+                    CF Max <SortIcon active={sortField === "cfMaxRating"} direction={sortDir} />
+                  </th>
                   <th style={{ width: 100, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("contests")}>
                     Contests <SortIcon active={sortField === "contests"} direction={sortDir} />
                   </th>
@@ -806,6 +816,14 @@ const TfcCorner = () => {
                           </span>
                         )}
                       </div>
+                    </td>
+                    <td data-label="CF Max">
+                      <span
+                        className="stat-badge rating"
+                        title={row.cfMaxRating ? `Codeforces Max Rating: ${row.cfMaxRating}` : "No Codeforces rating"}
+                      >
+                        {row.cfMaxRating || "—"}
+                      </span>
                     </td>
                     <td data-label="Contests">
                       <button

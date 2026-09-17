@@ -7,6 +7,7 @@ import { TfcContest } from "../models/TfcContest.js";
 import { TfcRequest } from "../models/TfcRequest.js";
 import { TfcReport } from "../models/TfcReport.js";
 import { TfcConfig } from "../models/TfcConfig.js";
+import { HandleMeta } from "../models/HandleMeta.js";
 import { Passkey } from "../models/Passkey.js";
 import { buildEloStandings, fetchContestRank, syncContestRank } from "../services/vjudge.js";
 
@@ -293,15 +294,25 @@ router.get("/tfc/standings", async (req, res) => {
 
     const partById = new Map(participants.map((p) => [p._id.toString(), p]));
 
+    // Fetch HandleMeta for latest max ratings
+    const metas = await HandleMeta.find().select("handle maxRating").lean();
+    const metaMap = new Map();
+    metas.forEach((m) => {
+      if (m.handle) metaMap.set(m.handle.toLowerCase(), m.maxRating ?? 0);
+    });
+
     const enrich = (rows) =>
       rows.map((row) => {
         const p = partById.get(row.id);
+        const cfHandle = p?.codeforcesHandle || "";
+        const cfMaxRating = (cfHandle && metaMap.get(cfHandle.toLowerCase())) || p?.cfMaxRating || 0;
         return {
           ...row,
           roll: p?.roll || "",
           batch: p?.batch || "",
           vjudgeHandles: p?.vjudgeHandles || [],
-          codeforcesHandle: p?.codeforcesHandle || "",
+          codeforcesHandle: cfHandle,
+          cfMaxRating,
           otherOjs: p?.otherOjs || [],
           playlistUrl: p?.playlistUrl || "",
           excludedContests: p?.excludedContests || [],

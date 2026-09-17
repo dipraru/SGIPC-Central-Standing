@@ -15,6 +15,7 @@ const tfcParticipantSchema = new mongoose.Schema(
     batch: { type: String, required: true, trim: true },
     vjudgeHandles: { type: [String], default: [] },
     codeforcesHandle: { type: String, trim: true, default: "" },
+    cfMaxRating: { type: Number, default: 0 },
     otherOjs: { type: [otherOjSchema], default: [] },
     playlistUrl: { type: String, trim: true, default: "" },
     excludedContests: { type: [Number], default: [] },

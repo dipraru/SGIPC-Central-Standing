@@ -245,11 +245,16 @@ const AdminDashboard = () => {
   const [sortDir,   setSortDir]   = useState('desc');
 
   const handleSortClick = (field) => {
-    if (sortField === field) {
-      setSortDir((prev) => (prev === 'desc' ? 'asc' : 'desc'));
-    } else {
+    const defaultDir = field === 'handle' ? 'asc' : 'desc';
+    const oppositeDir = defaultDir === 'desc' ? 'asc' : 'desc';
+    if (sortField !== field) {
       setSortField(field);
-      setSortDir(field === 'handle' ? 'asc' : 'desc');
+      setSortDir(defaultDir);
+    } else if (sortDir === defaultDir) {
+      setSortDir(oppositeDir);
+    } else {
+      setSortField(null);
+      setSortDir('desc');
     }
   };
 
@@ -740,7 +745,7 @@ const AdminDashboard = () => {
       list.sort((a, b) => {
         let valA = a[tfcStandingsSortField];
         let valB = b[tfcStandingsSortField];
-        if (tfcStandingsSortField === "rank" || tfcStandingsSortField === "contests") {
+        if (tfcStandingsSortField === "rank" || tfcStandingsSortField === "contests" || tfcStandingsSortField === "cfMaxRating") {
           valA = Number(valA) || 0;
           valB = Number(valB) || 0;
         } else if (tfcStandingsSortField === "rating") {
@@ -752,12 +757,26 @@ const AdminDashboard = () => {
         }
         if (valA < valB) return tfcStandingsSortDir === "asc" ? -1 : 1;
         if (valA > valB) return tfcStandingsSortDir === "asc" ? 1 : -1;
-        return 0;
+        return (Number(a.rank) || 0) - (Number(b.rank) || 0);
       });
     }
 
     return list;
   }, [tfcStandingsMap, tfcStandingsType, tfcStandingsData, tfcStandingsMinContests, tfcStandingsBatches, tfcStandingsSearch, tfcStandingsSortField, tfcStandingsSortDir]);
+
+  const handleTfcStandingsSortClick = (field) => {
+    const defaultDir = (field === "name" || field === "rank") ? "asc" : "desc";
+    const oppositeDir = defaultDir === "desc" ? "asc" : "desc";
+    if (tfcStandingsSortField !== field) {
+      setTfcStandingsSortField(field);
+      setTfcStandingsSortDir(defaultDir);
+    } else if (tfcStandingsSortDir === defaultDir) {
+      setTfcStandingsSortDir(oppositeDir);
+    } else {
+      setTfcStandingsSortField("rank");
+      setTfcStandingsSortDir("asc");
+    }
+  };
 
   // Available batches for Participation Matrix
   const adminParticipationBatches = useMemo(() => {
@@ -2285,70 +2304,41 @@ const AdminDashboard = () => {
                     <thead>
                       <tr>
                         <th
-                          style={{ width: 80, cursor: "pointer" }}
-                          onClick={() => {
-                            if (tfcStandingsSortField === "rank") {
-                              setTfcStandingsSortDir((d) => (d === "asc" ? "desc" : "asc"));
-                            } else {
-                              setTfcStandingsSortField("rank");
-                              setTfcStandingsSortDir("asc");
-                            }
-                          }}
+                          style={{ width: 80, cursor: "pointer", userSelect: "none" }}
+                          onClick={() => handleTfcStandingsSortClick("rank")}
                         >
-                          Rank <SortIcon field="rank" sortField={tfcStandingsSortField} sortDir={tfcStandingsSortDir} />
+                          Rank <SortIcon active={tfcStandingsSortField === "rank" && tfcStandingsSortDir === "desc"} direction={tfcStandingsSortDir} />
                         </th>
                         <th
-                          style={{ cursor: "pointer" }}
-                          onClick={() => {
-                            if (tfcStandingsSortField === "name") {
-                              setTfcStandingsSortDir((d) => (d === "asc" ? "desc" : "asc"));
-                            } else {
-                              setTfcStandingsSortField("name");
-                              setTfcStandingsSortDir("asc");
-                            }
-                          }}
+                          style={{ cursor: "pointer", userSelect: "none" }}
+                          onClick={() => handleTfcStandingsSortClick("name")}
                         >
-                          Contestant <SortIcon field="name" sortField={tfcStandingsSortField} sortDir={tfcStandingsSortDir} />
+                          Contestant <SortIcon active={tfcStandingsSortField === "name"} direction={tfcStandingsSortDir} />
                         </th>
                         <th
-                          style={{ width: 95, cursor: "pointer" }}
-                          onClick={() => {
-                            if (tfcStandingsSortField === "batch") {
-                              setTfcStandingsSortDir((d) => (d === "asc" ? "desc" : "asc"));
-                            } else {
-                              setTfcStandingsSortField("batch");
-                              setTfcStandingsSortDir("desc");
-                            }
-                          }}
+                          style={{ width: 95, cursor: "pointer", userSelect: "none" }}
+                          onClick={() => handleTfcStandingsSortClick("batch")}
                         >
-                          Batch <SortIcon field="batch" sortField={tfcStandingsSortField} sortDir={tfcStandingsSortDir} />
+                          Batch <SortIcon active={tfcStandingsSortField === "batch"} direction={tfcStandingsSortDir} />
                         </th>
                         <th>Handles</th>
                         <th
-                          style={{ width: 110, textAlign: "center", cursor: "pointer" }}
-                          onClick={() => {
-                            if (tfcStandingsSortField === "contests") {
-                              setTfcStandingsSortDir((d) => (d === "asc" ? "desc" : "asc"));
-                            } else {
-                              setTfcStandingsSortField("contests");
-                              setTfcStandingsSortDir("desc");
-                            }
-                          }}
+                          style={{ width: 105, textAlign: "center", cursor: "pointer", userSelect: "none" }}
+                          onClick={() => handleTfcStandingsSortClick("cfMaxRating")}
                         >
-                          Contests <SortIcon field="contests" sortField={tfcStandingsSortField} sortDir={tfcStandingsSortDir} />
+                          CF Max <SortIcon active={tfcStandingsSortField === "cfMaxRating"} direction={tfcStandingsSortDir} />
                         </th>
                         <th
-                          style={{ width: 130, textAlign: "right", cursor: "pointer" }}
-                          onClick={() => {
-                            if (tfcStandingsSortField === "rating") {
-                              setTfcStandingsSortDir((d) => (d === "asc" ? "desc" : "asc"));
-                            } else {
-                              setTfcStandingsSortField("rating");
-                              setTfcStandingsSortDir("desc");
-                            }
-                          }}
+                          style={{ width: 110, textAlign: "center", cursor: "pointer", userSelect: "none" }}
+                          onClick={() => handleTfcStandingsSortClick("contests")}
                         >
-                          TFC Rating <SortIcon field="rating" sortField={tfcStandingsSortField} sortDir={tfcStandingsSortDir} />
+                          Contests <SortIcon active={tfcStandingsSortField === "contests"} direction={tfcStandingsSortDir} />
+                        </th>
+                        <th
+                          style={{ width: 130, textAlign: "right", cursor: "pointer", userSelect: "none" }}
+                          onClick={() => handleTfcStandingsSortClick("rating")}
+                        >
+                          TFC Rating <SortIcon active={tfcStandingsSortField === "rating"} direction={tfcStandingsSortDir} />
                         </th>
                         <th style={{ width: 130, textAlign: "center" }}>Recordings</th>
                       </tr>
@@ -2434,6 +2424,14 @@ const AdminDashboard = () => {
                                 </div>
                               )}
                             </div>
+                          </td>
+                          <td style={{ textAlign: "center" }}>
+                            <span
+                              className="stat-badge rating"
+                              title={p.cfMaxRating ? `Codeforces Max Rating: ${p.cfMaxRating}` : "No Codeforces rating"}
+                            >
+                              {p.cfMaxRating || "—"}
+                            </span>
                           </td>
                           <td style={{ textAlign: "center" }}>
                             <button

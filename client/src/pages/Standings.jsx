@@ -502,12 +502,14 @@ const Standings = () => {
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 16 }}>
+            {/* TFC Corner button detached for off-season (can be restored for next year's TFC):
             <Link to="/tfc" className="tfc-corner-btn-red" title="Go to Team Formation Contest Corner">
               <span>Go to TFC Corner</span>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z" />
               </svg>
             </Link>
+            */}
             <img src="/logo.png" alt="SGIPC" className="hero-logo" />
           </div>
         </div>

@@ -12,8 +12,10 @@ const App = () => {
   return (
     <Routes>
       <Route path="/" element={<Standings />} />
+      {/* TFC Corner routes currently detached for the off-season. Can be restored for next year's TFC:
       <Route path="/tfc" element={<TfcCorner />} />
       <Route path="/tfc/contestant/:id" element={<TfcVideoViewer />} />
+      */}
       <Route
         path="/admin"
         element={token ? <AdminDashboard /> : <AdminLogin />}

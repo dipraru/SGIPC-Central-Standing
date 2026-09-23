@@ -54,10 +54,19 @@ import { ContestHistoryModal } from "../components/ContestHistoryModal.jsx";
 import { TfcSettingsModal } from "../components/TfcSettingsModal.jsx";
 import { computeBatchOptions, SortIcon } from "./Standings.jsx";
 
-// ─── Session Tab Persistence ──────────────────────────────────────────────────
+// ─── Session Tab Persistence & TFC Availability ──────────────────────────────
 const ADMIN_TAB_KEY = "sgipc_admin_tab";
+// Set ENABLE_TFC to true to re-attach TFC Corner for next year's competition
+const ENABLE_TFC = false;
+
 const getInitialAdminTab = () => {
-  try { return sessionStorage.getItem(ADMIN_TAB_KEY) || "individual"; } catch { return "individual"; }
+  try {
+    const saved = sessionStorage.getItem(ADMIN_TAB_KEY);
+    if (!ENABLE_TFC && saved === "tfc") return "individual";
+    return saved || "individual";
+  } catch {
+    return "individual";
+  }
 };
 const saveAdminTab = (tab) => {
   try { sessionStorage.setItem(ADMIN_TAB_KEY, tab); } catch {}
@@ -427,7 +436,9 @@ const AdminDashboard = () => {
     loadHandles();
     loadVjudge();
     loadRequests();
-    loadTfc();
+    if (ENABLE_TFC) {
+      loadTfc();
+    }
   }, []);
 
   // ── Create Handle ──────────────────────────────────────────────────────────
@@ -1286,14 +1297,16 @@ const AdminDashboard = () => {
             </span>
           )}
         </button>
-        <button className={`tab ${activeTab === "tfc" ? "active" : ""}`} onClick={() => switchTab("tfc")}>
-          🎯 TFC Corner
-          {(tfcRequests.filter((r) => r.status === "pending").length > 0 || tfcReports.filter((r) => r.status === "pending").length > 0) && (
-            <span style={{ marginLeft: 6, background: "var(--danger)", color: "#fff", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>
-              {tfcRequests.filter((r) => r.status === "pending").length + tfcReports.filter((r) => r.status === "pending").length}
-            </span>
-          )}
-        </button>
+        {ENABLE_TFC && (
+          <button className={`tab ${activeTab === "tfc" ? "active" : ""}`} onClick={() => switchTab("tfc")}>
+            🎯 TFC Corner
+            {(tfcRequests.filter((r) => r.status === "pending").length > 0 || tfcReports.filter((r) => r.status === "pending").length > 0) && (
+              <span style={{ marginLeft: 6, background: "var(--danger)", color: "#fff", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>
+                {tfcRequests.filter((r) => r.status === "pending").length + tfcReports.filter((r) => r.status === "pending").length}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* ════════════════════════════════════════════════════════════════════
@@ -1844,9 +1857,9 @@ const AdminDashboard = () => {
       )}
 
       {/* ════════════════════════════════════════════════════════════════════
-          TFC CORNER MANAGEMENT TAB
+          TFC CORNER MANAGEMENT TAB (Detached for off-season)
           ════════════════════════════════════════════════════════════════════ */}
-      {activeTab === "tfc" && (
+      {ENABLE_TFC && activeTab === "tfc" && (
         <div className="card">
           <div className="card-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
             <div>

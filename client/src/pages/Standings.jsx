@@ -226,46 +226,7 @@ const Standings = () => {
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState(null);
 
-  const handleDirectSync = async (targetHandle) => {
-    if (!targetHandle || syncingHandle) return;
-    setSyncingHandle(targetHandle);
-    try {
-      const res = await syncHandle(targetHandle);
-      alert(res?.message || `Successfully synced ${targetHandle}!`);
-      loadData();
-    } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        (err?.response?.status === 504
-          ? "Sync timed out on server. Codeforces was slow to respond. Please try again."
-          : (err?.message || "Failed to sync handle. Please try again."));
-      alert(msg);
-    } finally {
-      setSyncingHandle(null);
-    }
-  };
 
-  const handleModalSyncSubmit = async (e) => {
-    e?.preventDefault();
-    const handle = syncInputHandle.trim();
-    if (!handle) return;
-    setSyncLoading(true);
-    setSyncFeedback(null);
-    try {
-      const res = await syncHandle(handle);
-      setSyncFeedback({ ok: true, message: res?.message || `Successfully synced ${handle}!` });
-      loadData();
-    } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        (err?.response?.status === 504
-          ? "Sync timed out on server. Codeforces was slow to respond. Please try again."
-          : (err?.message || "Sync failed. Please try again."));
-      setSyncFeedback({ ok: false, message: msg });
-    } finally {
-      setSyncLoading(false);
-    }
-  };
 
   // ── Column Sorting State (ephemeral, resets on refresh) ────────────────────
   const [sortField, setSortField] = useState(null); // null | 'handle' | 'maxRating' | 'solvedCount' | 'standingRating'
@@ -391,6 +352,50 @@ const Standings = () => {
       setInactiveLoading(false);
     }
   }, []);
+
+  // ── On-Demand Sync Handlers ────────────────────────────────────────────────
+  const handleDirectSync = async (targetHandle) => {
+    if (!targetHandle || syncingHandle) return;
+    setSyncingHandle(targetHandle);
+    try {
+      const res = await syncHandle(targetHandle);
+      alert(res?.message || `Successfully synced ${targetHandle}!`);
+      await fetchStandings();
+      if (showInactive) fetchInactive();
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        (err?.response?.status === 504
+          ? "Sync timed out on server. Codeforces was slow to respond. Please try again."
+          : (err?.message || "Failed to sync handle. Please try again."));
+      alert(msg);
+    } finally {
+      setSyncingHandle(null);
+    }
+  };
+
+  const handleModalSyncSubmit = async (e) => {
+    e?.preventDefault();
+    const handle = syncInputHandle.trim();
+    if (!handle) return;
+    setSyncLoading(true);
+    setSyncFeedback(null);
+    try {
+      const res = await syncHandle(handle);
+      setSyncFeedback({ ok: true, message: res?.message || `Successfully synced ${handle}!` });
+      await fetchStandings();
+      if (showInactive) fetchInactive();
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        (err?.response?.status === 504
+          ? "Sync timed out on server. Codeforces was slow to respond. Please try again."
+          : (err?.message || "Sync failed. Please try again."));
+      setSyncFeedback({ ok: false, message: msg });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
 
   // ── Initial load (Stale-While-Revalidate pattern) ──────────────────────────
   useEffect(() => {

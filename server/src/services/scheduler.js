@@ -95,7 +95,7 @@ export async function refreshHandleData(handle, options = {}) {
       );
     }
 
-    console.log(`Refreshing data for handle: ${handle}`);
+    console.log(`Refreshing data for handle: ${handle}${preloadedUserInfo ? " (user.info from batch)" : ""}`);
 
     // Fetch user info and solved problems (supports preloaded batch user info and persistent MongoDB cache)
     const [userInfo, solvedRes] = await Promise.all([
@@ -314,7 +314,7 @@ export async function refreshHandleData(handle, options = {}) {
       PendingProblem.deleteMany({ handle, date: { $lt: oldestKeptDate } }),
     ]);
 
-    console.log(`Successfully refreshed data for handle: ${handle} (up to ${targetDateKey})`);
+    console.log(`Successfully refreshed data for handle: ${handle} (up to ${targetDateKey})${solvedRes?.cached ? " [cache hit]" : ""}`);
   } catch (error) {
     console.error(`Error refreshing handle ${handle}:`, error.message);
   }

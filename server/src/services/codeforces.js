@@ -52,6 +52,8 @@ export const getUsersInfoBatch = async (handles = []) => {
   if (!handles || handles.length === 0) return new Map();
   const CHUNK_SIZE = 50;
   const resultMap = new Map();
+  const totalChunks = Math.ceil(handles.length / CHUNK_SIZE);
+  console.log(`[CF API] Batch-fetching user.info for ${handles.length} handles in ${totalChunks} API call(s)...`);
 
   for (let i = 0; i < handles.length; i += CHUNK_SIZE) {
     const chunk = handles.slice(i, i + CHUNK_SIZE);
@@ -78,6 +80,7 @@ export const getUsersInfoBatch = async (handles = []) => {
     }
   }
 
+  console.log(`[CF API] Batch fetch complete: loaded profile info for ${resultMap.size}/${handles.length} handles.`);
   return resultMap;
 };
 
@@ -191,6 +194,7 @@ export const getOrUpdateSolvedProblems = async (handle, options = {}) => {
     latestSub &&
     cachedDoc.lastSubmissionId === latestSub.id
   ) {
+    console.log(`[Cache Hit] ${handle}: 0 new CF submissions (reusing ${cachedDoc.totalSolvedCount} cached solves)`);
     return {
       solvedList: cachedDoc.solvedList || [],
       totalSolvedCount: cachedDoc.totalSolvedCount || 0,
@@ -200,6 +204,7 @@ export const getOrUpdateSolvedProblems = async (handle, options = {}) => {
   }
 
   // Full fetch and cache update in MongoDB
+  console.log(`[CF API] ${handle}: fetching fresh submissions from Codeforces (updating cache)...`);
   const solvedRes = await getSolvedProblems(handle);
   const newSubmissionId = latestSub?.id || (solvedRes.solvedList[0]?.solvedAtSeconds ? 1 : 0);
   const newSubmissionTime = latestSub?.creationTimeSeconds || 0;

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { HandleSolves } from "../models/HandleSolves.js";
 
 const client = axios.create({
   baseURL: "https://codeforces.com/api",
@@ -44,6 +45,40 @@ export const getUserInfo = async (handle) => {
       maxRating: info.maxRating ?? info.rating ?? 0,
     };
   });
+};
+
+// Batch fetch user info for multiple handles in a single API call (up to 50 per chunk)
+export const getUsersInfoBatch = async (handles = []) => {
+  if (!handles || handles.length === 0) return new Map();
+  const CHUNK_SIZE = 50;
+  const resultMap = new Map();
+
+  for (let i = 0; i < handles.length; i += CHUNK_SIZE) {
+    const chunk = handles.slice(i, i + CHUNK_SIZE);
+    try {
+      const data = await withRetry(async () => {
+        const res = await client.get("/user.info", {
+          params: { handles: chunk.join(";") },
+        });
+        return res.data;
+      });
+
+      if (data.status === "OK" && Array.isArray(data.result)) {
+        for (const user of data.result) {
+          resultMap.set(user.handle.toLowerCase(), {
+            handle: user.handle,
+            maxRating: user.maxRating ?? user.rating ?? 0,
+            rating: user.rating ?? 0,
+            rank: user.rank ?? "unrated",
+          });
+        }
+      }
+    } catch (err) {
+      console.warn(`[CF API] Batch user.info failed for chunk: ${err.message}`);
+    }
+  }
+
+  return resultMap;
 };
 
 export const getSolvedProblems = async (handle) => {
@@ -104,3 +139,87 @@ export const getSolvedProblems = async (handle) => {
     };
   });
 };
+
+// Fast lightweight check for latest submission timestamp (from=1&count=1)
+// Avoids downloading thousands of past submissions when checking inactive accounts
+export const getLatestSubmissionTime = async (handle) => {
+  const sub = await getLatestSubmission(handle);
+  return sub ? sub.creationTimeSeconds : 0;
+};
+
+// Fast lightweight check for latest submission object (id + creationTimeSeconds)
+export const getLatestSubmission = async (handle) => {
+  return withRetry(async () => {
+    const { data } = await client.get("/user.status", {
+      params: { handle, from: 1, count: 1 },
+    });
+
+    if (data.status !== "OK") {
+      throw new Error("Unable to fetch latest submission");
+    }
+
+    if (!data.result || data.result.length === 0) {
+      return null;
+    }
+
+    const sub = data.result[0];
+    return {
+      id: sub.id,
+      creationTimeSeconds: sub.creationTimeSeconds || 0,
+    };
+  });
+};
+
+// Cached solved problems: uses MongoDB HandleSolves cache when no new submissions occurred
+export const getOrUpdateSolvedProblems = async (handle, options = {}) => {
+  const { forceFull = false } = options;
+
+  let latestSub = null;
+  try {
+    latestSub = await getLatestSubmission(handle);
+  } catch (err) {
+    console.warn(`[CF API] Latest submission probe failed for ${handle}: ${err.message}`);
+  }
+
+  // Check persistent cache in MongoDB
+  const cachedDoc = await HandleSolves.findOne({ handle }).lean();
+
+  if (
+    !forceFull &&
+    cachedDoc &&
+    cachedDoc.lastSubmissionId &&
+    latestSub &&
+    cachedDoc.lastSubmissionId === latestSub.id
+  ) {
+    return {
+      solvedList: cachedDoc.solvedList || [],
+      totalSolvedCount: cachedDoc.totalSolvedCount || 0,
+      cached: true,
+      lastSubmissionId: cachedDoc.lastSubmissionId,
+    };
+  }
+
+  // Full fetch and cache update in MongoDB
+  const solvedRes = await getSolvedProblems(handle);
+  const newSubmissionId = latestSub?.id || (solvedRes.solvedList[0]?.solvedAtSeconds ? 1 : 0);
+  const newSubmissionTime = latestSub?.creationTimeSeconds || 0;
+
+  await HandleSolves.findOneAndUpdate(
+    { handle },
+    {
+      handle,
+      lastSubmissionId: newSubmissionId,
+      lastSubmissionTime: newSubmissionTime,
+      totalSolvedCount: solvedRes.totalSolvedCount,
+      solvedList: solvedRes.solvedList,
+    },
+    { upsert: true, new: true }
+  );
+
+  return {
+    ...solvedRes,
+    cached: false,
+    lastSubmissionId: newSubmissionId,
+  };
+};
+

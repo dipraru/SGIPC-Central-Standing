@@ -57,6 +57,12 @@ export const submitReactivationRequest = async (handle) => {
   return data;
 };
 
+export const syncHandle = async (handle) => {
+  const { data } = await api.post(`/sync/${encodeURIComponent(handle)}`);
+  return data;
+};
+
+
 export const getVjudgeStandings = async () => {
   const { data } = await api.get("/vjudge/standings");
   return data;

@@ -4,7 +4,13 @@ import { HandleMeta } from "../models/HandleMeta.js";
 import { RatingHistory } from "../models/RatingHistory.js";
 import { DailySolved } from "../models/DailySolved.js";
 import { PendingProblem } from "../models/PendingProblem.js";
-import { getSolvedProblems, getUserInfo } from "./codeforces.js";
+import {
+  getSolvedProblems,
+  getUserInfo,
+  getLatestSubmissionTime,
+  getUsersInfoBatch,
+  getOrUpdateSolvedProblems,
+} from "./codeforces.js";
 import { toLocalDateKey, computeRatingUpTo, startOfLocalDayFromDateKey } from "./elo.js";
 
 // 90 days in seconds — threshold for marking an account inactive
@@ -30,19 +36,71 @@ const hasRecentActivity = (solvedProblems) => {
 
 // Function to refresh data for a single handle
 export async function refreshHandleData(handle, options = {}) {
-  const { fullHistory = false, forceActive = false } = options;
+  const { fullHistory = false, forceActive = false, forceInactive = false, userInfo: preloadedUserInfo } = options;
   try {
-    console.log(`Refreshing data for handle: ${handle}`);
     const nowSeconds = Math.floor(Date.now() / 1000);
     const localTodayKey = toLocalDateKey(nowSeconds);
     const localTodayStart = startOfLocalDayFromDateKey(localTodayKey);
     const targetEndSeconds = localTodayStart - 1;
     const targetDateKey = toLocalDateKey(targetEndSeconds);
 
-    // Fetch user info and solved problems
+    const handleDoc = await Handle.findOne({ handle });
+
+    // ── Inactive Handle Optimization: only check once a week ─────────────────
+    if (handleDoc?.isInactive && !forceActive) {
+      const lastCheckTime = handleDoc.lastInactiveCheck
+        ? new Date(handleDoc.lastInactiveCheck).getTime()
+        : (handleDoc.inactiveSince ? new Date(handleDoc.inactiveSince).getTime() : 0);
+      const daysSinceCheck = (Date.now() - lastCheckTime) / (1000 * 3600 * 24);
+
+      // Skip if checked less than 7 days ago
+      if (!forceInactive && daysSinceCheck < 7) {
+        console.log(
+          `Handle ${handle} is inactive (checked ${daysSinceCheck.toFixed(1)}d ago). Skipping weekly CF fetch.`
+        );
+        await HandleMeta.updateOne(
+          { handle },
+          { lastUpdateDate: targetDateKey }
+        );
+        return;
+      }
+
+      console.log(`Weekly activity check for inactive handle: ${handle}...`);
+      const cutoff = nowSeconds - INACTIVE_THRESHOLD_SECONDS;
+      let latestSubmissionTime = 0;
+      try {
+        latestSubmissionTime = await getLatestSubmissionTime(handle);
+      } catch (err) {
+        console.warn(`[Lightweight check failed for ${handle}]: ${err.message}`);
+      }
+
+      // If latest submission is older than 90 days, user is still inactive
+      if (latestSubmissionTime > 0 && latestSubmissionTime < cutoff) {
+        await Handle.updateOne(
+          { handle },
+          { lastInactiveCheck: new Date() }
+        );
+        await HandleMeta.updateOne(
+          { handle },
+          { lastUpdateDate: targetDateKey }
+        );
+        console.log(
+          `Handle ${handle} verified still inactive (last solve ${new Date(latestSubmissionTime * 1000).toISOString().slice(0, 10)}).`
+        );
+        return;
+      }
+
+      console.log(
+        `Handle ${handle} has recent activity (${latestSubmissionTime ? new Date(latestSubmissionTime * 1000).toISOString().slice(0, 10) : "unknown"})! Re-evaluating...`
+      );
+    }
+
+    console.log(`Refreshing data for handle: ${handle}`);
+
+    // Fetch user info and solved problems (supports preloaded batch user info and persistent MongoDB cache)
     const [userInfo, solvedRes] = await Promise.all([
-      getUserInfo(handle),
-      getSolvedProblems(handle),
+      preloadedUserInfo ? Promise.resolve(preloadedUserInfo) : getUserInfo(handle),
+      getOrUpdateSolvedProblems(handle, { forceFull: fullHistory }),
     ]);
 
     const solvedProblems = solvedRes.solvedList || [];
@@ -78,17 +136,20 @@ export async function refreshHandleData(handle, options = {}) {
 
     if (!active) {
       // No activity in 90 days — mark as inactive
-      const handleDoc = await Handle.findOne({ handle });
       if (handleDoc) {
         if (!handleDoc.isInactive) {
           // First time becoming inactive — set timestamp, don't purge yet
           await Handle.updateOne(
             { handle },
-            { isInactive: true, inactiveSince: new Date() }
+            { isInactive: true, inactiveSince: new Date(), lastInactiveCheck: new Date() }
           );
           console.log(`Handle ${handle} marked as inactive (no solves in 90 days).`);
         } else {
-          // Already inactive — check if grace period has passed
+          // Already inactive — update lastInactiveCheck timestamp
+          await Handle.updateOne(
+            { handle },
+            { lastInactiveCheck: new Date() }
+          );
           const inactiveSince = handleDoc.inactiveSince
             ? new Date(handleDoc.inactiveSince)
             : new Date();
@@ -103,18 +164,6 @@ export async function refreshHandleData(handle, options = {}) {
               RatingHistory.deleteMany({ handle }),
               PendingProblem.deleteMany({ handle }),
             ]);
-            // Keep HandleMeta updated with latest maxRating & totalSolved
-            await HandleMeta.findOneAndUpdate(
-              { handle },
-              {
-                handle,
-                maxRating: userInfo.maxRating,
-                totalSolved: totalSolvedCount,
-                currentRating: 1000,
-                lastUpdateDate: targetDateKey,
-              },
-              { upsert: true, new: true }
-            );
             console.log(
               `Handle ${handle} historical data purged (inactive ${daysSinceInactive} days).`
             );
@@ -124,16 +173,32 @@ export async function refreshHandleData(handle, options = {}) {
             );
           }
         }
+
+        // Keep HandleMeta updated with latest maxRating & totalSolved
+        const finalTotalSolved = (handleDoc && Number.isFinite(handleDoc.customTotalSolved))
+          ? handleDoc.customTotalSolved
+          : totalSolvedCount;
+
+        await HandleMeta.findOneAndUpdate(
+          { handle },
+          {
+            handle,
+            maxRating: userInfo.maxRating,
+            totalSolved: finalTotalSolved,
+            currentRating: 1000,
+            lastUpdateDate: targetDateKey,
+          },
+          { upsert: true, new: true }
+        );
       }
       return; // Stop here — no rating/daily data to refresh for inactive handle
     }
 
     // ── Active handle — re-activate if previously inactive or forceActive ──────
-    const handleDoc = await Handle.findOne({ handle });
     if (handleDoc?.isInactive || forceActive) {
       await Handle.updateOne(
         { handle },
-        { isInactive: false, inactiveSince: null }
+        { isInactive: false, inactiveSince: null, lastInactiveCheck: null }
       );
       console.log(`Handle ${handle} re-activated.`);
     }
@@ -269,13 +334,143 @@ export async function refreshAllHandles(options = {}) {
 
   console.log(`Refreshing ${allHandles.length} handles (inactive handles included for re-activation check)`);
 
+  // Pre-fetch all user info in batches of 50
+  const allHandleNames = allHandles.map((h) => h.handle);
+  const userInfoMap = await getUsersInfoBatch(allHandleNames);
+
   for (const { handle } of allHandles) {
-    await refreshHandleData(handle, { fullHistory });
+    const preloadedUserInfo = userInfoMap.get(handle.toLowerCase());
+    await refreshHandleData(handle, { fullHistory, userInfo: preloadedUserInfo });
     // Throttle to avoid hitting Codeforces rate limits
     await delay(HANDLE_REFRESH_DELAY_MS);
   }
 
   console.log("Refresh completed for handles");
+}
+
+// Refresh a batch of handles that are outdated for the current target date.
+// Designed for serverless environments (Vercel) to avoid function timeouts.
+export async function refreshOutdatedHandlesChunk(options = {}) {
+  const {
+    limit = 6,
+    maxDurationMs = 45000,
+    fullHistory = false,
+    skip,
+  } = options;
+
+  const startTime = Date.now();
+  const nowSeconds = Math.floor(startTime / 1000);
+  const localTodayKey = toLocalDateKey(nowSeconds);
+  const localTodayStart = startOfLocalDayFromDateKey(localTodayKey);
+  const targetEndSeconds = localTodayStart - 1;
+  const targetDateKey = toLocalDateKey(targetEndSeconds);
+
+  // If explicit skip is provided, use standard pagination (stable sort by _id)
+  if (Number.isFinite(skip) && skip >= 0) {
+    const total = await Handle.countDocuments();
+    const handles = await Handle.find()
+      .sort({ _id: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const processed = [];
+    for (const h of handles) {
+      if (Date.now() - startTime >= maxDurationMs) {
+        break;
+      }
+      await refreshHandleData(h.handle, { fullHistory });
+      processed.push(h.handle);
+      await delay(HANDLE_REFRESH_DELAY_MS);
+    }
+
+    return {
+      status: "ok",
+      processed,
+      processedCount: processed.length,
+      nextSkip: skip + handles.length,
+      total,
+      hasMore: skip + handles.length < total,
+      targetDate: targetDateKey,
+    };
+  }
+
+  // Automatic Queue Mode: Find handles that have NOT been updated up to targetDateKey
+  const allHandles = await Handle.find().select("handle isInactive lastInactiveCheck inactiveSince").lean();
+  const total = allHandles.length;
+
+  const metas = await HandleMeta.find().select("handle lastUpdateDate updatedAt").lean();
+  const metaMap = new Map(metas.map((m) => [m.handle, m]));
+
+  // Auto-catchup inactive handles that were checked within the last 7 days:
+  // Keep their lastUpdateDate current so they are only fetched once a week
+  const inactiveToCatchUp = allHandles.filter((h) => {
+    if (!h.isInactive) return false;
+    const meta = metaMap.get(h.handle);
+    if (meta && meta.lastUpdateDate === targetDateKey) return false;
+    const lastCheckTime = h.lastInactiveCheck
+      ? new Date(h.lastInactiveCheck).getTime()
+      : (h.inactiveSince ? new Date(h.inactiveSince).getTime() : 0);
+    const daysSinceCheck = (Date.now() - lastCheckTime) / (1000 * 3600 * 24);
+    return daysSinceCheck < 7;
+  });
+
+  if (inactiveToCatchUp.length > 0) {
+    await Promise.all(
+      inactiveToCatchUp.map((h) =>
+        HandleMeta.updateOne(
+          { handle: h.handle },
+          { lastUpdateDate: targetDateKey }
+        )
+      )
+    );
+  }
+
+  const updatedMetas = await HandleMeta.find().select("handle lastUpdateDate updatedAt").lean();
+  const updatedMetaMap = new Map(updatedMetas.map((m) => [m.handle, m]));
+
+  // A handle is outdated if it has no HandleMeta entry OR lastUpdateDate !== targetDateKey
+  const outdatedHandles = allHandles.filter((h) => {
+    const meta = updatedMetaMap.get(h.handle);
+    return !meta || meta.lastUpdateDate !== targetDateKey;
+  });
+
+  // Sort outdated handles so that handles never updated or updated longest ago come first
+  outdatedHandles.sort((a, b) => {
+    const metaA = updatedMetaMap.get(a.handle);
+    const metaB = updatedMetaMap.get(b.handle);
+    const timeA = metaA?.updatedAt ? new Date(metaA.updatedAt).getTime() : 0;
+    const timeB = metaB?.updatedAt ? new Date(metaB.updatedAt).getTime() : 0;
+    return timeA - timeB;
+  });
+
+  const candidateBatch = outdatedHandles.slice(0, limit);
+  const candidateNames = candidateBatch.map((h) => h.handle);
+  const userInfoMap = await getUsersInfoBatch(candidateNames);
+
+  const processed = [];
+  for (const h of outdatedHandles) {
+    // Stop if limit reached or time budget exceeded
+    if (processed.length >= limit || Date.now() - startTime >= maxDurationMs) {
+      break;
+    }
+
+    const preloadedUserInfo = userInfoMap.get(h.handle.toLowerCase());
+    await refreshHandleData(h.handle, { fullHistory, userInfo: preloadedUserInfo });
+    processed.push(h.handle);
+    await delay(HANDLE_REFRESH_DELAY_MS);
+  }
+
+  const remaining = Math.max(0, outdatedHandles.length - processed.length);
+
+  return {
+    status: "ok",
+    processed,
+    processedCount: processed.length,
+    remaining,
+    total,
+    targetDate: targetDateKey,
+  };
 }
 
 // Schedule daily refresh at midnight Bangladesh time (UTC+6 = 18:00 UTC)

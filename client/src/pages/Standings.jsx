@@ -7,6 +7,7 @@ import {
   submitHandleRequest,
   submitTeamRequest,
   submitReactivationRequest,
+  syncHandle,
 } from "../api.js";
 import { BatchSelect } from "../components/BatchSelect.jsx";
 
@@ -217,6 +218,44 @@ const Standings = () => {
   const [rDone,     setRDone]     = useState(false);
   const [rLoading,  setRLoading]  = useState(false);
   const [requestFormKey, setRequestFormKey] = useState(0);
+
+  // ── On-Demand Sync State ───────────────────────────────────────────────────
+  const [syncingHandle, setSyncingHandle] = useState(null);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncInputHandle, setSyncInputHandle] = useState("");
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState(null);
+
+  const handleDirectSync = async (targetHandle) => {
+    if (!targetHandle || syncingHandle) return;
+    setSyncingHandle(targetHandle);
+    try {
+      const res = await syncHandle(targetHandle);
+      alert(res?.message || `Successfully synced ${targetHandle}!`);
+      loadData();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to sync handle. Please try again.");
+    } finally {
+      setSyncingHandle(null);
+    }
+  };
+
+  const handleModalSyncSubmit = async (e) => {
+    e?.preventDefault();
+    const handle = syncInputHandle.trim();
+    if (!handle) return;
+    setSyncLoading(true);
+    setSyncFeedback(null);
+    try {
+      const res = await syncHandle(handle);
+      setSyncFeedback({ ok: true, message: res?.message || `Successfully synced ${handle}!` });
+      loadData();
+    } catch (err) {
+      setSyncFeedback({ ok: false, message: err?.response?.data?.message || "Sync failed. Please try again." });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
 
   // ── Column Sorting State (ephemeral, resets on refresh) ────────────────────
   const [sortField, setSortField] = useState(null); // null | 'handle' | 'maxRating' | 'solvedCount' | 'standingRating'
@@ -553,7 +592,7 @@ const Standings = () => {
           {/* Filter Bar */}
           {!loading && standings.length > 0 && (
             <div className="filter-bar">
-              <div className="filter-section">
+              <div className="filter-section" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <button
                   className={`secondary sm`}
                   onClick={() => setBatchFilterOpen(!batchFilterOpen)}
@@ -563,6 +602,17 @@ const Standings = () => {
                       {selectedBatches.length}
                     </span>
                   )}
+                </button>
+                <button
+                  className="secondary sm"
+                  onClick={() => {
+                    setSyncInputHandle("");
+                    setSyncFeedback(null);
+                    setSyncModalOpen(true);
+                  }}
+                  title="Sync your Codeforces solves immediately (1h cooldown)"
+                >
+                  🔄 Sync Solves
                 </button>
                 {selectedBatches.map((b) => (
                   <span key={b} className="batch-tag" onClick={() => toggleBatch(b)}>
@@ -660,9 +710,26 @@ const Standings = () => {
                           <div className={`rank-badge ${rankCls(gRank)}`}>{gRank}</div>
                         </td>
                         <td data-label="Handle">
-                          <a href={`https://codeforces.com/profile/${row.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">
-                            {row.handle}
-                          </a>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <a href={`https://codeforces.com/profile/${row.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">
+                              {row.handle}
+                            </a>
+                            <button
+                              className="icon-btn"
+                              onClick={() => handleDirectSync(row.handle)}
+                              disabled={syncingHandle === row.handle}
+                              title="Sync solves from Codeforces (1h cooldown)"
+                              style={{
+                                padding: "2px 5px",
+                                fontSize: 11,
+                                lineHeight: 1,
+                                opacity: syncingHandle === row.handle ? 0.4 : 0.7,
+                                cursor: syncingHandle === row.handle ? "wait" : "pointer"
+                              }}
+                            >
+                              {syncingHandle === row.handle ? "⏳" : "🔄"}
+                            </button>
+                          </div>
                           {(row.name || row.batch) && (
                             <div className="handle-sub">
                               {row.name && <span>{row.name}</span>}
@@ -1238,6 +1305,54 @@ const Standings = () => {
             <div className="modal-footer">
               <button className="secondary" onClick={() => setActivityModal(null)}>Close</button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* ════════════════════════════════════════════════════════════════════
+          MODAL: ON-DEMAND SYNC
+          ════════════════════════════════════════════════════════════════════ */}
+      {syncModalOpen && (
+        <div className="modal-overlay" onClick={() => setSyncModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2>Sync Codeforces Solves</h2>
+                <p className="card-subtitle" style={{ margin: "2px 0 0" }}>
+                  Refresh your solves and practice rating immediately (1-hour cooldown per handle).
+                </p>
+              </div>
+              <button className="modal-close" onClick={() => setSyncModalOpen(false)}>×</button>
+            </div>
+            <form onSubmit={handleModalSyncSubmit}>
+              <div className="modal-body" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+                {syncFeedback && (
+                  <div className={`notice ${syncFeedback.ok ? "success" : "error"}`}>
+                    {syncFeedback.message}
+                  </div>
+                )}
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "var(--text-primary)" }}>
+                    Codeforces Handle
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter your CF handle (e.g. tourist)"
+                    value={syncInputHandle}
+                    onChange={(e) => setSyncInputHandle(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="secondary" onClick={() => setSyncModalOpen(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="primary" disabled={syncLoading || !syncInputHandle.trim()}>
+                  {syncLoading ? "Syncing with CF..." : "Sync Now"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -8,11 +8,13 @@ import {
   startOfLocalDayFromDateKey,
   toLocalDateKey,
 } from "../services/elo.js";
+import { refreshHandleData } from "../services/scheduler.js";
 
 const router = express.Router();
 
 // ─── Active Standings ──────────────────────────────────────────────────────
 router.get("/standings", async (req, res) => {
+  res.setHeader("Cache-Control", "public, s-maxage=120, stale-while-revalidate=300");
   // Only fetch active handles
   const handles = await Handle.find({ isInactive: { $ne: true } }).sort({ createdAt: -1 });
   if (handles.length === 0) {
@@ -135,6 +137,7 @@ router.get("/standings", async (req, res) => {
 
 // ─── Inactive Accounts ─────────────────────────────────────────────────────
 router.get("/standings/inactive", async (req, res) => {
+  res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
   try {
     const inactiveHandles = await Handle.find({ isInactive: true }).lean();
 
@@ -165,6 +168,56 @@ router.get("/standings/inactive", async (req, res) => {
     return res.status(502).json({
       message: "Unable to fetch inactive accounts.",
     });
+  }
+});
+
+// ─── On-Demand Handle Sync (Public with 1-Hour Cooldown) ───────────────────
+const SYNC_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+router.post("/sync/:handle", async (req, res) => {
+  const rawHandle = req.params.handle?.trim();
+  if (!rawHandle) {
+    return res.status(400).json({ message: "Handle is required." });
+  }
+
+  try {
+    const handleDoc = await Handle.findOne({
+      handle: { $regex: `^${rawHandle}$`, $options: "i" },
+    });
+
+    if (!handleDoc) {
+      return res.status(404).json({ message: `Handle "${rawHandle}" not found in standings.` });
+    }
+
+    const now = Date.now();
+    const lastSync = handleDoc.lastSyncTime ? new Date(handleDoc.lastSyncTime).getTime() : 0;
+    const elapsed = now - lastSync;
+
+    if (elapsed < SYNC_COOLDOWN_MS) {
+      const remainingMinutes = Math.ceil((SYNC_COOLDOWN_MS - elapsed) / (60 * 1000));
+      return res.status(429).json({
+        message: `Cooldown active. Please wait ${remainingMinutes} minute(s) before syncing ${handleDoc.handle} again.`,
+        remainingMinutes,
+      });
+    }
+
+    // Refresh handle data immediately with forceActive
+    await refreshHandleData(handleDoc.handle, { forceActive: true });
+
+    // Record sync timestamp
+    await Handle.updateOne({ _id: handleDoc._id }, { lastSyncTime: new Date() });
+
+    const meta = await HandleMeta.findOne({ handle: handleDoc.handle }).lean();
+
+    return res.json({
+      message: `Successfully synced ${handleDoc.handle}!`,
+      handle: handleDoc.handle,
+      standingRating: meta?.currentRating ?? 1000,
+      totalSolved: meta?.totalSolved ?? 0,
+    });
+  } catch (err) {
+    console.error(`Sync error for ${rawHandle}:`, err);
+    return res.status(500).json({ message: "Failed to sync handle. Please try again later." });
   }
 });
 

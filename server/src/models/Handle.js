@@ -17,6 +17,8 @@ const handleSchema = new mongoose.Schema(
     ],
     isInactive: { type: Boolean, default: false },
     inactiveSince: { type: Date, default: null },
+    lastInactiveCheck: { type: Date, default: null },
+    lastSyncTime: { type: Date, default: null },
   },
   { timestamps: true }
 );

@@ -16,16 +16,21 @@ jobs:
       group: daily-refresh-standings
       cancel-in-progress: false
     steps:
-      - name: Refresh all chunks with retries
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Refresh all outdated handles dynamically
         env:
           BASE_URL: https://sgipc-central-standing.vercel.app
           CRON_SECRET: 8%7DN5%21eH%24D%26ss%2CqV%5DR99f%29Xs2S0pKM304
         run: |
           set -e
-          skip=0
-          while true; do
-            url="$BASE_URL/api/cron/refresh-chunk?secret=$CRON_SECRET&skip=$skip&limit=5"
-            echo "Refreshing chunk: skip=$skip"
+          echo "Starting daily refresh loop..."
+          iteration=1
+          max_iterations=100
+          while [ "$iteration" -le "$max_iterations" ]; do
+            url="$BASE_URL/api/cron/refresh-chunk?secret=$CRON_SECRET"
+            echo "--- Iteration $iteration: Calling refresh endpoint ---"
             ok=0
             response=""
             for attempt in 1 2 3; do
@@ -33,24 +38,28 @@ jobs:
                 ok=1
                 break
               fi
-              echo "Attempt $attempt failed for skip=$skip; retrying in 10s..."
+              echo "Attempt $attempt failed; retrying in 10s..."
               sleep 10
             done
             if [ "$ok" -ne 1 ]; then
-              echo "Chunk refresh failed after retries: skip=$skip"
+              echo "Chunk refresh failed after 3 attempts"
               exit 1
             fi
 
             echo "$response"
 
-            processed_count=$(printf '%s' "$response" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const obj=JSON.parse(s||"{}");console.log((obj.processed||[]).length);});')
-            next_skip=$(printf '%s' "$response" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const obj=JSON.parse(s||"{}");console.log(Number.isFinite(obj.nextSkip)?obj.nextSkip:0);});')
+            remaining=$(printf '%s' "$response" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const obj=JSON.parse(s||"{}");console.log(Number.isFinite(obj.remaining)?obj.remaining:0);}catch(e){console.log(-1);}});')
+            processed_count=$(printf '%s' "$response" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const obj=JSON.parse(s||"{}");console.log(Array.isArray(obj.processed)?obj.processed.length:0);}catch(e){console.log(0);}});')
 
-            if [ "$processed_count" -eq 0 ]; then
-              echo "All handles refreshed."
+            if [ "$remaining" -eq 0 ] || [ "$processed_count" -eq 0 ]; then
+              echo "All handles refreshed successfully! (Remaining: $remaining)"
               break
             fi
 
-            skip=$next_skip
-            sleep 20
+            echo "$remaining handles remaining. Waiting 5s before next batch..."
+            sleep 5
+            iteration=$((iteration + 1))
           done
+
+      - name: Keep workflow active (prevent 60-day inactivity suspension)
+        uses: gautamkrishnar/keepalive-workflow@v2

@@ -273,21 +273,23 @@ export async function refreshHandleData(handle, options = {}) {
     }
 
     let currentRating = 1000;
-    const historyMap = new Map();
-    for (const dateKey of lastSixDates) {
-      const endSeconds = startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
-      const ratingForDate = computeRatingUpTo({
-        maxRating: userInfo.maxRating,
-        solvedProblems: uniqueSolved,
-        dayEndSeconds: endSeconds,
-      });
-      const created = await RatingHistory.findOneAndUpdate(
-        { handle, date: dateKey },
-        { handle, date: dateKey, rating: ratingForDate },
-        { upsert: true, new: true }
-      ).lean();
-      historyMap.set(dateKey, created);
-    }
+    const ratingResults = await Promise.all(
+      lastSixDates.map(async (dateKey) => {
+        const endSeconds = startOfLocalDayFromDateKey(dateKey) + 86400 - 1;
+        const ratingForDate = computeRatingUpTo({
+          maxRating: userInfo.maxRating,
+          solvedProblems: uniqueSolved,
+          dayEndSeconds: endSeconds,
+        });
+        const created = await RatingHistory.findOneAndUpdate(
+          { handle, date: dateKey },
+          { handle, date: dateKey, rating: ratingForDate },
+          { upsert: true, new: true }
+        ).lean();
+        return [dateKey, created];
+      })
+    );
+    const historyMap = new Map(ratingResults);
     currentRating = historyMap.get(targetDateKey)?.rating ?? 1000;
 
     const finalTotalSolved = (handleDoc && Number.isFinite(handleDoc.customTotalSolved))

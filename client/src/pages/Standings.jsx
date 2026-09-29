@@ -234,7 +234,12 @@ const Standings = () => {
       alert(res?.message || `Successfully synced ${targetHandle}!`);
       loadData();
     } catch (err) {
-      alert(err?.response?.data?.message || "Failed to sync handle. Please try again.");
+      const msg =
+        err?.response?.data?.message ||
+        (err?.response?.status === 504
+          ? "Sync timed out on server. Codeforces was slow to respond. Please try again."
+          : (err?.message || "Failed to sync handle. Please try again."));
+      alert(msg);
     } finally {
       setSyncingHandle(null);
     }
@@ -251,7 +256,12 @@ const Standings = () => {
       setSyncFeedback({ ok: true, message: res?.message || `Successfully synced ${handle}!` });
       loadData();
     } catch (err) {
-      setSyncFeedback({ ok: false, message: err?.response?.data?.message || "Sync failed. Please try again." });
+      const msg =
+        err?.response?.data?.message ||
+        (err?.response?.status === 504
+          ? "Sync timed out on server. Codeforces was slow to respond. Please try again."
+          : (err?.message || "Sync failed. Please try again."));
+      setSyncFeedback({ ok: false, message: msg });
     } finally {
       setSyncLoading(false);
     }

@@ -58,7 +58,7 @@ export const submitReactivationRequest = async (handle) => {
 };
 
 export const syncHandle = async (handle) => {
-  const { data } = await api.post(`/sync/${encodeURIComponent(handle)}`);
+  const { data } = await api.post(`/sync/${encodeURIComponent(handle)}`, {});
   return data;
 };
 

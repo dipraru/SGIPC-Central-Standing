@@ -1,8 +1,6 @@
 import React from "react";
 import { Route, Routes, Navigate } from "react-router-dom";
 import Standings from "./pages/Standings.jsx";
-import TfcCorner from "./pages/TfcCorner.jsx";
-import TfcVideoViewer from "./pages/TfcVideoViewer.jsx";
 import AdminLogin from "./pages/AdminLogin.jsx";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 
@@ -12,10 +10,7 @@ const App = () => {
   return (
     <Routes>
       <Route path="/" element={<Standings />} />
-      {/* TFC Corner routes currently detached for the off-season. Can be restored for next year's TFC:
-      <Route path="/tfc" element={<TfcCorner />} />
-      <Route path="/tfc/contestant/:id" element={<TfcVideoViewer />} />
-      */}
+      <Route path="/standings" element={<Standings />} />
       <Route
         path="/admin"
         element={token ? <AdminDashboard /> : <AdminLogin />}
@@ -26,4 +21,3 @@ const App = () => {
 };
 
 export default App;
-

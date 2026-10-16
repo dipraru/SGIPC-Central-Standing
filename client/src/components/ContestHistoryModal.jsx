@@ -136,11 +136,11 @@ export const ContestHistoryModal = ({ isOpen, onClose, contestant }) => {
                               fontSize: 12,
                               background:
                                 c.rank === 1
-                                  ? "linear-gradient(135deg, #fbbf24 0%, #d97706 100%)"
+                                  ? "linear-gradient(135deg, #f59e0b 0%, #b45309 100%)"
                                   : c.rank === 2
-                                  ? "linear-gradient(135deg, #cbd5e1 0%, #94a3b8 100%)"
+                                  ? "linear-gradient(135deg, #64748b 0%, #475569 100%)"
                                   : c.rank === 3
-                                  ? "linear-gradient(135deg, #fbcfe8 0%, #f472b6 100%)"
+                                  ? "linear-gradient(135deg, #b45309 0%, #78350f 100%)"
                                   : "var(--bg-subtle)",
                               color: isTop3 ? "#ffffff" : "var(--text-primary)",
                               border: `1px solid ${isTop3 ? "transparent" : "var(--border)"}`,

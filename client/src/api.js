@@ -12,6 +12,28 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      const url = error.config?.url || "";
+      // Only clear and redirect if this was an authenticated admin/contest-setter request
+      if (url.includes("/admin") || url.includes("/contest-setter/")) {
+        localStorage.removeItem("sgipc_token");
+        if (window.location.pathname.startsWith("/admin")) {
+          window.location.href = "/admin";
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export const verifyAdminAuth = async () => {
+  const { data } = await api.get("/admin/me");
+  return data;
+};
+
 export const loginAdmin = async (payload) => {
   const { data } = await api.post("/admin/login", payload);
   return data;
@@ -312,5 +334,34 @@ export const deleteAdminTfcReport = async (id) => {
   return data;
 };
 
+// ─── Contest Setter APIs ─────────────────────────────────────────────────────
 
-/* WQ2LDzMUdnmNOGns */
+export const getGymContests = async (params = {}) => {
+  const { data } = await api.get("/contest-setter/contests", { params });
+  return data;
+};
+
+export const getGymContest = async (id) => {
+  const { data } = await api.get(`/contest-setter/contest/${id}`);
+  return data;
+};
+
+export const getGymStats = async () => {
+  const { data } = await api.get("/contest-setter/stats");
+  return data;
+};
+
+export const toggleGymContestDone = async (id) => {
+  const { data } = await api.post(`/contest-setter/contest/${id}/toggle-done`);
+  return data;
+};
+
+export const fetchGymContestProblems = async (id) => {
+  const { data } = await api.post(`/contest-setter/contest/${id}/fetch-problems`);
+  return data;
+};
+
+export const syncNewerGymContests = async () => {
+  const { data } = await api.post("/contest-setter/fetch-newer", {}, { timeout: 70000 });
+  return data;
+};

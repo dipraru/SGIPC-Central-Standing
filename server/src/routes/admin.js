@@ -55,6 +55,10 @@ router.post("/login", async (req, res) => {
   return res.json({ token });
 });
 
+router.get("/me", authRequired, async (req, res) => {
+  return res.json({ username: req.admin?.username || "admin" });
+});
+
 router.put("/profile", authRequired, async (req, res) => {
   const { currentPassword, newUsername, newPassword } = req.body;
 

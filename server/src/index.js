@@ -10,6 +10,7 @@ import standingsRoutes from "./routes/standings.js";
 import vjudgeRoutes from "./routes/vjudge.js";
 import tfcRoutes from "./routes/tfc.js";
 import requestRoutes from "./routes/requests.js";
+import contestSetterRoutes from "./routes/contestSetter.js";
 import { connectDb } from "./config/db.js";
 import { Admin } from "./models/Admin.js";
 import { Passkey } from "./models/Passkey.js";
@@ -34,6 +35,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminVjudgeRoutes);
 app.use("/api/admin", adminTfcRoutes);
+app.use("/api/contest-setter", contestSetterRoutes);
 app.use("/api", standingsRoutes);
 app.use("/api", vjudgeRoutes);
 app.use("/api", tfcRoutes);

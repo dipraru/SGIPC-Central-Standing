@@ -2,6 +2,7 @@ import express from "express";
 import { Handle } from "../models/Handle.js";
 import { DailySolved } from "../models/DailySolved.js";
 import { HandleMeta } from "../models/HandleMeta.js";
+import { HandleSolves } from "../models/HandleSolves.js";
 import { PendingProblem } from "../models/PendingProblem.js";
 import { RatingHistory } from "../models/RatingHistory.js";
 import {
@@ -148,6 +149,8 @@ router.get("/standings/inactive", async (req, res) => {
     const results = await Promise.all(
       inactiveHandles.map(async (entry) => {
         const meta = await HandleMeta.findOne({ handle: entry.handle }).lean();
+        const solves = await HandleSolves.findOne({ handle: entry.handle }).lean();
+        const solvedNum = meta?.totalSolved ?? solves?.totalSolvedCount ?? solves?.solvedList?.length ?? 0;
         return {
           id: entry._id,
           handle: entry.handle,
@@ -155,14 +158,17 @@ router.get("/standings/inactive", async (req, res) => {
           roll: entry.roll || "",
           batch: entry.batch || "",
           maxRating: meta?.maxRating ?? 0,
-          totalSolved: meta?.totalSolved ?? 0,
+          standingRating: meta?.currentRating ?? 1000,
+          solvedCount: solvedNum,
+          totalSolved: solvedNum,
           inactiveSince: entry.inactiveSince || null,
+          isInactive: true,
         };
       })
     );
 
     // Sort by maxRating descending
-    results.sort((a, b) => b.maxRating - a.maxRating);
+    results.sort((a, b) => (b.maxRating || 0) - (a.maxRating || 0));
     return res.json(results);
   } catch (error) {
     return res.status(502).json({

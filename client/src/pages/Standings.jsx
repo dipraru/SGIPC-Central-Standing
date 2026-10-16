@@ -1,5 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   getStandings,
   getVjudgeStandings,
@@ -9,22 +8,65 @@ import {
   submitReactivationRequest,
   syncHandle,
 } from "../api.js";
-import { BatchSelect } from "../components/BatchSelect.jsx";
+import { ActivityHistoryModal } from "../components/ActivityHistoryModal.jsx";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const getRatingLevel = (r) => {
-  if (r < 1200) return { level: "Dead",          cls: "casual"      };
-  if (r < 1400) return { level: "Warming Up",      cls: "warmup"      };
-  if (r < 1800) return { level: "Persistent",      cls: "persistent"  };
-  if (r < 2000) return { level: "Relentless",      cls: "relentless"  };
-  if (r < 2400) return { level: "Unstoppable",      cls: "unstoppable" };
-  if (r < 3000) return { level: "Problem Slayer",  cls: "slayer"      };
-  return            { level: "👑 Practice Legend", cls: "legend"      };
+// ─── Rating Tiers & Helpers ──────────────────────────────────────────────────
+export const getRatingLevel = (r) => {
+  if (r < 1200) return { level: "Dead", cls: "casual", color: "var(--tier-dead, #94a3b8)" };
+  if (r < 1400) return { level: "Warming Up", cls: "warmup", color: "var(--tier-warmup, #38bdf8)" };
+  if (r < 1800) return { level: "Persistent", cls: "persistent", color: "var(--tier-persistent, #818cf8)" };
+  if (r < 2000) return { level: "Relentless", cls: "relentless", color: "var(--tier-relentless, #fbbf24)" };
+  if (r < 2400) return { level: "Unstoppable", cls: "unstoppable", color: "var(--tier-unstoppable, #f87171)" };
+  if (r < 3000) return { level: "Problem Slayer", cls: "slayer", color: "var(--tier-slayer, #eab308)" };
+  return { level: "👑 Practice Legend", cls: "legend", color: "var(--tier-legend, #f43f5e)" };
 };
-const rankCls = (n) => n === 1 ? "gold" : n === 2 ? "silver" : n === 3 ? "bronze" : "default";
 
-const extractBatchDigits = (b) => { const m = (b || "").match(/(\d{2})$/); return m ? m[1] : null; };
-const normalizeBatch     = (b) => { const d = extractBatchDigits(b); return d ? `2K${d}` : null; };
+const extractBatchDigits = (b) => {
+  const m = (b || "").match(/(\d{2})$/);
+  return m ? m[1] : null;
+};
+const normalizeBatch = (b) => {
+  const d = extractBatchDigits(b);
+  return d ? `2K${d}` : null;
+};
+
+export const getBatchesFromList = (items = [], extractor) => {
+  const digitsSet = new Set();
+  (items || []).forEach((item) => {
+    const batches = extractor(item);
+    (batches || []).forEach((b) => {
+      const d = extractBatchDigits(b);
+      if (d) {
+        const num = parseInt(d, 10);
+        if (!isNaN(num)) digitsSet.add(num);
+      }
+    });
+  });
+  const sorted = Array.from(digitsSet).sort((a, b) => b - a);
+  return sorted.map((n) => `2K${String(n).padStart(2, "0")}`);
+};
+
+export const computeJoinBatchOptions = (standings = [], teamStandings = []) => {
+  const digitsSet = new Set();
+  const addFromStr = (str) => {
+    const d = extractBatchDigits(str);
+    if (d) {
+      const num = parseInt(d, 10);
+      if (!isNaN(num)) digitsSet.add(num);
+    }
+  };
+  (standings || []).forEach((r) => addFromStr(r.batch));
+  (teamStandings || []).forEach((t) => (t.members || []).forEach((m) => addFromStr(m.batch)));
+
+  const batchNumbers = Array.from(digitsSet);
+  const maxBatch = batchNumbers.length > 0 ? Math.max(...batchNumbers) : 25;
+  const topBatch = maxBatch + 1;
+  const options = [];
+  for (let i = 0; i < 5; i++) {
+    options.push(`2K${String(topBatch - i).padStart(2, "0")}`);
+  }
+  return options;
+};
 
 export const computeBatchOptions = (standings = [], teamStandings = [], inactiveList = []) => {
   const digitsSet = new Set();
@@ -43,459 +85,261 @@ export const computeBatchOptions = (standings = [], teamStandings = [], inactive
   let batchNumbers = Array.from(digitsSet);
   if (batchNumbers.length > 0) {
     const maxBatch = Math.max(...batchNumbers);
-    const nextBatch = maxBatch + 1;
-    digitsSet.add(nextBatch);
+    digitsSet.add(maxBatch + 1);
     batchNumbers = Array.from(digitsSet);
   } else {
-    // Default fallback from known batches in system
     batchNumbers = [25, 24, 23, 22, 21, 20];
   }
 
-  // Sort descending: most recent batches at top
   batchNumbers.sort((a, b) => b - a);
-
-  // Format as 2K**
   return batchNumbers.map((n) => `2K${String(n).padStart(2, "0")}`);
 };
 
-// ─── Cache ────────────────────────────────────────────────────────────────────
-const CACHE_VER   = "v4";
-const CACHE_FRESH = 2  * 60 * 1000;   // 2 min stale-while-revalidate
-const CACHE_MAX   = 30 * 60 * 1000;   // 30 min hard expiry
-
-const readCache = (key) => {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const p = JSON.parse(raw);
-    if (!p?.data) return null;
-    const age = Date.now() - (p.timestamp || 0);
-    if (age > CACHE_MAX) { localStorage.removeItem(key); return null; }
-    return { ...p, isStale: p.version !== CACHE_VER || age > CACHE_FRESH };
-  } catch { return null; }
-};
-const writeCache = (key, data) =>
-  localStorage.setItem(key, JSON.stringify({ data, version: CACHE_VER, timestamp: Date.now() }));
-
-// ─── Session Tab Persistence ──────────────────────────────────────────────────
-const TAB_KEY = "sgipc_tab";
-const getInitialTab = () => {
-  try { return sessionStorage.getItem(TAB_KEY) || "individual"; } catch { return "individual"; }
-};
-const saveTab = (tab) => { try { sessionStorage.setItem(TAB_KEY, tab); } catch {} };
-
-// ─── Team Ranking Types ───────────────────────────────────────────────────────
-const TEAM_RANKING_TYPES = [
-  {
-    id: "normal",
-    label: "Standard",
-    description: "Standard performance rating based on head-to-head contest results",
-  },
-  {
-    id: "gain-only",
-    label: "Gain Only",
-    description: "Performance ratings where teams only gain points without loss deductions",
-  },
-  {
-    id: "zero-participation",
-    label: "Participation Weighted",
-    description: "Overall rankings factoring in both contest performance and active participation",
-  },
-];
-
-// ─── Sort Indicator Component ────────────────────────────────────────────────
-export const SortIcon = ({ active, direction, field, sortField, sortDir }) => {
-  const isActive = active !== undefined ? active : (field && sortField ? field === sortField : false);
-  const dir = direction !== undefined ? direction : sortDir;
+export const SortIcon = ({ col, activeCol, dir }) => {
+  const isActive = col === activeCol;
   return (
     <span
-      className={`sort-icon ${isActive ? "active" : ""}`}
       style={{
         display: "inline-flex",
         alignItems: "center",
-        justifyContent: "center",
-        verticalAlign: "middle",
         marginLeft: 6,
-        opacity: isActive ? 1 : 0.4,
-        transition: "all 0.15s ease",
-        height: 14,
-        width: 10,
+        opacity: isActive ? 1 : 0.35,
+        transition: "opacity 0.15s ease",
       }}
     >
-      <svg width="10" height="14" viewBox="0 0 10 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path
-          d="M5 1L1.5 5H8.5L5 1Z"
-          fill={isActive && dir === "asc" ? "var(--primary)" : "currentColor"}
-          opacity={isActive && dir === "desc" ? 0.25 : 1}
-        />
-        <path
-          d="M5 13L8.5 9H1.5L5 13Z"
-          fill={isActive && dir === "desc" ? "var(--primary)" : "currentColor"}
-          opacity={isActive && dir === "asc" ? 0.25 : 1}
-        />
-      </svg>
+      {isActive ? (dir === "asc" ? "▲" : "▼") : "⇅"}
     </span>
   );
 };
 
-// ─── Empty team member ────────────────────────────────────────────────────────
-const emptyMember = () => ({ handle: "", name: "", roll: "", batch: "" });
+const emptyMember = () => ({ handle: "", name: "", roll: "", batch: "", batchSelect: "", customDigits: "" });
 
-// ══════════════════════════════════════════════════════════════════════════════
-// COMPONENT
-// ══════════════════════════════════════════════════════════════════════════════
-const Standings = () => {
-  // ── Active view: individual | team | inactive ──────────────────────────────
-  const [activeTab,  setActiveTab]  = useState(getInitialTab);
-  const [showInactive, setShowInactive] = useState(false);   // slide-in panel inside individual
+export default function Standings() {
+  const [activeTab, setActiveTab] = useState("individual"); // 'individual' | 'team' | 'inactive'
+  const [showInactive, setShowInactive] = useState(false);
 
-  const switchTab = (tab) => { setActiveTab(tab); saveTab(tab); setShowInactive(false); };
-  const openInactive = () => { setShowInactive(true); saveTab("inactive_panel"); fetchInactive(); };
-  const closeInactive = () => { setShowInactive(false); saveTab("individual"); };
+  // Theme state
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem("sgipc_theme") || "dark";
+  });
 
-  // Restore inactive panel state on mount
-  useEffect(() => {
-    const saved = getInitialTab();
-    if (saved === "inactive_panel") {
-      setActiveTab("individual");
-      setShowInactive(true);
-    }
-  }, []);
-
-  // ── Standings data ─────────────────────────────────────────────────────────
-  const [standings,    setStandings]    = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState("");
-  const [lastUpdated,  setLastUpdated]  = useState(null);
-  const [lastFetchAt,  setLastFetchAt]  = useState(null);
-
-  // ── Team data ──────────────────────────────────────────────────────────────
-  const [teamStandings,    setTeamStandings]    = useState([]);
-  const [teamStandingsMap, setTeamStandingsMap] = useState({ normal: [], "gain-only": [], "zero-participation": [] });
-  const [teamContests,     setTeamContests]     = useState([]);
-  const [selectedTeamType, setSelectedTeamType] = useState("normal");
-  const [teamLoading,      setTeamLoading]      = useState(true);
-  const [teamError,        setTeamError]        = useState("");
-  const [lastTeamFetchAt,  setLastTeamFetchAt]  = useState(null);
-  const [contestsModalOpen, setContestsModalOpen] = useState(false);
-
-  // ── Inactive data ──────────────────────────────────────────────────────────
-  const [inactiveList,      setInactiveList]      = useState([]);
-  const [inactiveLoading,   setInactiveLoading]   = useState(false);
-  const [inactiveError,     setInactiveError]     = useState("");
-  const [reactivatingHandle, setReactivatingHandle] = useState(null);
-  const [reactivationMsg,   setReactivationMsg]   = useState({});
-
-  // ── Filters ────────────────────────────────────────────────────────────────
-  const [selectedBatches,  setSelectedBatches]  = useState([]);
-  const [batchFilterOpen,  setBatchFilterOpen]  = useState(false);
-  const [searchQuery,      setSearchQuery]      = useState("");
-
-  // ── Modals ─────────────────────────────────────────────────────────────────
-  const [activityModal,  setActivityModal]  = useState(null);  // row data | null
-  const [infoModal,      setInfoModal]      = useState(null);  // row data | null
-  const [teamInfoModal,  setTeamInfoModal]  = useState(null);  // team row | null
-  const [inactiveModal,  setInactiveModal]  = useState(null);  // inactive row | null
-  const [requestModal,   setRequestModal]   = useState(false);
-  const [requestTab,     setRequestTab]     = useState("handle");
-
-  // ── Request form: individual ───────────────────────────────────────────────
-  const [rHandle,  setRHandle]  = useState("");
-  const [rName,    setRName]    = useState("");
-  const [rRoll,    setRRoll]    = useState("");
-  const [rBatch,   setRBatch]   = useState("");
-  const [rPasskey, setRPasskey] = useState("");
-
-  // ── Request form: team (3 members) ────────────────────────────────────────
-  const emptyMember = () => ({ name: "", roll: "", batch: "" });
-  const [rTeamName, setRTeamName] = useState("");
-  const [rTeamVjudgeHandle, setRTeamVjudgeHandle] = useState("");
-  const [rMembers,  setRMembers]  = useState([emptyMember(), emptyMember(), emptyMember()]);
-  const [rTeamPasskey, setRTeamPasskey] = useState("");
-
-  const [rError,    setRError]    = useState("");
-  const [rSuccess,  setRSuccess]  = useState("");
-  const [rDone,     setRDone]     = useState(false);
-  const [rLoading,  setRLoading]  = useState(false);
-  const [requestFormKey, setRequestFormKey] = useState(0);
-
-  // ── On-Demand Sync State ───────────────────────────────────────────────────
-  const [syncingHandle, setSyncingHandle] = useState(null);
-  const [syncModalOpen, setSyncModalOpen] = useState(false);
-  const [syncInputHandle, setSyncInputHandle] = useState("");
-  const [syncLoading, setSyncLoading] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState(null);
-
-
-
-  // ── Column Sorting State (ephemeral, resets on refresh) ────────────────────
-  const [sortField, setSortField] = useState(null); // null | 'handle' | 'maxRating' | 'solvedCount' | 'standingRating'
-  const [sortDir,   setSortDir]   = useState('desc');
-
-  const handleSortClick = (field) => {
-    const defaultDir = field === 'handle' ? 'asc' : 'desc';
-    const oppositeDir = defaultDir === 'desc' ? 'asc' : 'desc';
-    if (sortField !== field) {
-      setSortField(field);
-      setSortDir(defaultDir);
-    } else if (sortDir === defaultDir) {
-      setSortDir(oppositeDir);
-    } else {
-      setSortField(null);
-      setSortDir('desc');
-    }
+  const toggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    localStorage.setItem("sgipc_theme", nextTheme);
+    document.documentElement.setAttribute("data-theme", nextTheme);
   };
 
-  const sortedStandings = useMemo(() => {
-    if (!sortField) return standings;
-    const dir = sortDir === 'asc' ? 1 : -1;
-    return [...standings].sort((a, b) => {
-      let valA = a[sortField];
-      let valB = b[sortField];
-      if (sortField === 'handle') {
-        valA = (a.name || a.handle || "").toLowerCase();
-        valB = (b.name || b.handle || "").toLowerCase();
-        return valA.localeCompare(valB) * dir;
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  // Data states
+  const [standings, setStandings] = useState([]);
+  const [teamStandings, setTeamStandings] = useState([]);
+  const [inactiveList, setInactiveList] = useState([]);
+  const [individualLoading, setIndividualLoading] = useState(true);
+  const [teamLoading, setTeamLoading] = useState(true);
+  const [inactiveLoading, setInactiveLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  // Filter & Search states
+  const [search, setSearch] = useState("");
+  const [selectedBatches, setSelectedBatches] = useState([]);
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDir, setSortDir] = useState(null);
+  const [othersOpen, setOthersOpen] = useState(false);
+  const [othersCustomDigits, setOthersCustomDigits] = useState("");
+  const othersRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (othersRef.current && !othersRef.current.contains(e.target)) {
+        setOthersOpen(false);
       }
-      valA = Number(valA) || 0;
-      valB = Number(valB) || 0;
-      if (valA !== valB) return (valA - valB) * dir;
-      if (b.standingRating !== a.standingRating) return b.standingRating - a.standingRating;
-      return (b.maxRating || 0) - (a.maxRating || 0);
-    });
-  }, [standings, sortField, sortDir]);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
-  const availableBatches = useMemo(() => {
-    const s = new Set();
-    standings.forEach((r) => { const n = normalizeBatch(r.batch); if (n) s.add(n); });
-    return Array.from(s).sort();
-  }, [standings]);
+  // Syncing individual handle state
+  const [syncingHandle, setSyncingHandle] = useState(null);
 
-  const formBatchOptions = useMemo(() => {
-    return computeBatchOptions(standings, teamStandings, inactiveList);
-  }, [standings, teamStandings, inactiveList]);
+  // Modals state
+  const [requestModal, setRequestModal] = useState(false);
+  const [requestTab, setRequestTab] = useState("handle"); // 'handle' | 'team'
+  const [historyTarget, setHistoryTarget] = useState(null);
+  const [teamHistoryTarget, setTeamHistoryTarget] = useState(null);
+  const [teamContests, setTeamContests] = useState([]);
+  const [contestsModalOpen, setContestsModalOpen] = useState(false);
 
-  const globalRankMap = useMemo(() => {
-    const m = new Map();
-    sortedStandings.forEach((r, i) => m.set(String(r.id), i + 1));
-    return m;
-  }, [sortedStandings]);
+  // Request Form States
+  const [rHandle, setRHandle] = useState("");
+  const [rName, setRName] = useState("");
+  const [rRoll, setRRoll] = useState("");
+  const [rBatch, setRBatch] = useState("");
+  const [rBatchSelect, setRBatchSelect] = useState("");
+  const [rCustomBatchDigits, setRCustomBatchDigits] = useState("");
+  const [rPasskey, setRPasskey] = useState("");
 
-  const cfMaxRankMap = useMemo(() => {
-    const m = new Map();
-    const sortedByMax = [...standings].sort((a, b) => {
-      if ((b.maxRating || 0) !== (a.maxRating || 0)) {
-        return (b.maxRating || 0) - (a.maxRating || 0);
-      }
-      return (a.roll || "").localeCompare(b.roll || "", undefined, { numeric: true, sensitivity: "base" });
-    });
-    sortedByMax.forEach((r, i) => m.set(String(r.id), i + 1));
-    return m;
-  }, [standings]);
+  const [rTeamName, setRTeamName] = useState("");
+  const [rTeamVjudgeHandle, setRTeamVjudgeHandle] = useState("");
+  const [rMembers, setRMembers] = useState([emptyMember(), emptyMember(), emptyMember()]);
+  const [rTeamPasskey, setRTeamPasskey] = useState("");
 
-  const batchFiltered = useMemo(() => {
-    if (!selectedBatches.length) return sortedStandings;
-    return sortedStandings.filter((r) => {
-      const d = extractBatchDigits(r.batch);
-      return d && selectedBatches.some((b) => extractBatchDigits(b) === d);
-    });
-  }, [sortedStandings, selectedBatches]);
+  const [rLoading, setRLoading] = useState(false);
+  const [rError, setRError] = useState("");
+  const [rSuccess, setRSuccess] = useState("");
 
-  const displayed = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return batchFiltered;
-    return batchFiltered.filter(
-      (r) =>
-        (r.handle || "").toLowerCase().includes(q) ||
-        (r.name   || "").toLowerCase().includes(q) ||
-        (r.roll   || "").toLowerCase().includes(q)
-    );
-  }, [batchFiltered, searchQuery]);
+  // Reactivation state
+  const [reactivatingHandle, setReactivatingHandle] = useState(null);
+  const [reactivationMsg, setReactivationMsg] = useState({});
 
-  // ── Fetchers ───────────────────────────────────────────────────────────────
+  // Fetch individual standings
   const fetchStandings = useCallback(async () => {
     try {
-      const data = await getStandings();
-      setStandings(data);
-      setLastUpdated(new Date());
-      setLastFetchAt(Date.now());
+      setIndividualLoading(true);
       setError("");
-      writeCache("indStandings", data);
-      return true;
-    } catch { return false; }
+      const data = await getStandings();
+      if (Array.isArray(data)) {
+        const withRank = data.map((r, i) => ({
+          ...r,
+          defaultRank: r.rank || i + 1,
+        }));
+        setStandings(withRank);
+        setLastUpdated(new Date());
+      }
+    } catch (err) {
+      setError(err?.response?.data?.message || "Failed to load individual standings.");
+    } finally {
+      setIndividualLoading(false);
+    }
   }, []);
 
+  // Fetch team standings
   const fetchTeam = useCallback(async () => {
     try {
+      setTeamLoading(true);
       const data = await getVjudgeStandings();
-      if (data.standingsByType) {
-        setTeamStandingsMap(data.standingsByType);
+      const list = Array.isArray(data) ? data : (data?.standings || []);
+      const withRank = list.map((t, i) => ({
+        ...t,
+        teamName: t.teamName || t.name,
+        defaultRank: t.rank || i + 1,
+      }));
+      setTeamStandings(withRank);
+      if (data?.contests && Array.isArray(data.contests)) {
+        setTeamContests(data.contests);
       }
-      setTeamStandings(data.standings || []);
-      setTeamContests(data.contests || []);
-      setTeamError("");
-      setLastTeamFetchAt(Date.now());
-      writeCache("teamStandings", data);
-      return true;
-    } catch { return false; }
+    } catch (err) {
+      console.warn("Failed to load team standings:", err);
+    } finally {
+      setTeamLoading(false);
+    }
   }, []);
 
+  // Fetch inactive standings
   const fetchInactive = useCallback(async () => {
-    setInactiveLoading(true);
-    setInactiveError("");
     try {
+      setInactiveLoading(true);
       const data = await getInactiveStandings();
-      setInactiveList(data);
-    } catch {
-      setInactiveError("Unable to load inactive accounts.");
+      if (Array.isArray(data)) {
+        setInactiveList(data);
+      }
+    } catch (err) {
+      console.warn("Failed to load inactive standings:", err);
     } finally {
       setInactiveLoading(false);
     }
   }, []);
 
-  // ── On-Demand Sync Handlers ────────────────────────────────────────────────
-  const handleDirectSync = async (targetHandle) => {
-    if (!targetHandle || syncingHandle) return;
-    setSyncingHandle(targetHandle);
+  useEffect(() => {
+    fetchStandings();
+    fetchTeam();
+    fetchInactive();
+  }, [fetchStandings, fetchTeam, fetchInactive]);
+
+  // Handle single sync
+  const handleSyncHandle = async (handle) => {
     try {
-      const res = await syncHandle(targetHandle);
-      alert(res?.message || `Successfully synced ${targetHandle}!`);
+      setSyncingHandle(handle);
+      await syncHandle(handle);
       await fetchStandings();
-      if (showInactive) fetchInactive();
     } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        (err?.response?.status === 504
-          ? "Sync timed out on server. Codeforces was slow to respond. Please try again."
-          : (err?.message || "Failed to sync handle. Please try again."));
-      alert(msg);
+      alert("Failed to sync handle: " + (err?.response?.data?.message || err.message));
     } finally {
       setSyncingHandle(null);
     }
   };
 
-  const handleModalSyncSubmit = async (e) => {
-    e?.preventDefault();
-    const handle = syncInputHandle.trim();
-    if (!handle) return;
-    setSyncLoading(true);
-    setSyncFeedback(null);
+  // Reactivate handle
+  const handleReactivate = async (handle) => {
     try {
-      const res = await syncHandle(handle);
-      setSyncFeedback({ ok: true, message: res?.message || `Successfully synced ${handle}!` });
-      await fetchStandings();
-      if (showInactive) fetchInactive();
+      setReactivatingHandle(handle);
+      await submitReactivationRequest(handle);
+      setReactivationMsg((prev) => ({
+        ...prev,
+        [handle]: { ok: true, text: "Reactivation requested! Pending admin approval." },
+      }));
     } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        (err?.response?.status === 504
-          ? "Sync timed out on server. Codeforces was slow to respond. Please try again."
-          : (err?.message || "Sync failed. Please try again."));
-      setSyncFeedback({ ok: false, message: msg });
+      setReactivationMsg((prev) => ({
+        ...prev,
+        [handle]: { ok: false, text: err?.response?.data?.message || "Failed to request reactivation." },
+      }));
     } finally {
-      setSyncLoading(false);
+      setReactivatingHandle(null);
     }
   };
 
-  // ── Initial load (Stale-While-Revalidate pattern) ──────────────────────────
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      const c = readCache("indStandings");
-      if (c) {
-        setStandings(c.data);
-        setLastUpdated(new Date(c.timestamp));
-        setLoading(false);
-      }
-      const ok = await fetchStandings();
-      if (alive && !ok && !c) setError("Unable to load standings.");
-      if (alive) setLoading(false);
-    };
-    load();
-    return () => { alive = false; };
-  }, [fetchStandings]);
-
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      const c = readCache("teamStandings");
-      if (c) {
-        if (c.data?.standingsByType) {
-          setTeamStandingsMap(c.data.standingsByType);
-        }
-        setTeamStandings(c.data?.standings || []);
-        if (c.data?.contests) {
-          setTeamContests(c.data.contests);
-        }
-        setTeamLoading(false);
-      }
-      const ok = await fetchTeam();
-      if (alive && !ok && !c) setTeamError("Unable to load team standings.");
-      if (alive) setTeamLoading(false);
-    };
-    load();
-    return () => { alive = false; };
-  }, [fetchTeam]);
-
-  // Load inactive when the panel is opened
-  useEffect(() => {
-    if (showInactive) fetchInactive();
-  }, [showInactive, fetchInactive]);
-
-  // Refetch on focus
-  useEffect(() => {
-    const onFocus = () => {
-      if (!lastFetchAt    || Date.now() - lastFetchAt    > CACHE_FRESH) fetchStandings();
-      if (!lastTeamFetchAt|| Date.now() - lastTeamFetchAt> CACHE_FRESH) fetchTeam();
-    };
-    const onVis = () => { if (document.visibilityState === "visible") onFocus(); };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVis);
-    return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVis); };
-  }, [lastFetchAt, lastTeamFetchAt, fetchStandings, fetchTeam]);
-
-  // ── Request form helpers ───────────────────────────────────────────────────
-  const resetRequestForm = () => {
-    setRHandle(""); setRName(""); setRRoll(""); setRBatch(""); setRPasskey("");
-    setRTeamName(""); setRTeamVjudgeHandle(""); setRMembers([emptyMember(), emptyMember(), emptyMember()]); setRTeamPasskey("");
-    setRError(""); setRSuccess(""); setRDone(false);
-    setRequestFormKey((k) => k + 1);
-  };
-  const openRequestModal = () => { resetRequestForm(); setRequestTab("handle"); setRequestModal(true); };
-
-  const updateMember = (idx, field, val) =>
-    setRMembers((prev) => prev.map((m, i) => (i === idx ? { ...m, [field]: val } : m)));
-
-  const submitRequest = async () => {
-    setRError(""); setRSuccess("");
-    if (rLoading) return;
-
+  // Submit request form
+  const handleSubmitRequest = async (e) => {
+    e.preventDefault();
+    setRError("");
+    setRSuccess("");
     const BATCH_REGEX = /^2K\d{2}$/i;
 
+    const effectiveBatch = (
+      rBatchSelect === "other"
+        ? (rCustomBatchDigits ? `2K${rCustomBatchDigits}` : "")
+        : rBatchSelect || rBatch
+    ).trim().toUpperCase();
+
     if (requestTab === "handle") {
-      if (!rHandle.trim() || !rName.trim() || !rRoll.trim() || !rBatch.trim() || !rPasskey.trim())
+      if (!rHandle.trim() || !rName.trim() || !rRoll.trim() || !effectiveBatch || !rPasskey.trim()) {
         return setRError("All fields are required.");
-      if (!BATCH_REGEX.test(rBatch.trim()))
+      }
+      if (!BATCH_REGEX.test(effectiveBatch)) {
         return setRError("Batch must be in the format 2K** (e.g. 2K22).");
+      }
     } else {
-      if (!rTeamName.trim() || !rTeamVjudgeHandle.trim() || !rTeamPasskey.trim())
+      if (!rTeamName.trim() || !rTeamVjudgeHandle.trim() || !rTeamPasskey.trim()) {
         return setRError("Team name, VJudge handle, and passkey are required.");
+      }
       for (let i = 0; i < 3; i++) {
         const m = rMembers[i];
-        if (!m.name.trim() || !m.roll.trim() || !m.batch.trim())
+        const mBatch = (
+          m.batchSelect === "other"
+            ? (m.customDigits ? `2K${m.customDigits}` : "")
+            : m.batchSelect || m.batch
+        ).trim().toUpperCase();
+        if (!m.name.trim() || !m.roll.trim() || !mBatch) {
           return setRError(`All fields (Name, Roll, Batch) for Member ${i + 1} are required.`);
-        if (!BATCH_REGEX.test(m.batch.trim()))
+        }
+        if (!BATCH_REGEX.test(mBatch)) {
           return setRError(`Batch for Member ${i + 1} must be in the format 2K** (e.g. 2K22).`);
+        }
       }
     }
-    setRLoading(true);
+
     try {
+      setRLoading(true);
       if (requestTab === "handle") {
         await submitHandleRequest({
           handle: rHandle.trim(),
           name: rName.trim(),
           roll: rRoll.trim(),
-          batch: rBatch.trim().toUpperCase(),
+          batch: effectiveBatch,
           passkey: rPasskey.trim(),
         });
       } else {
@@ -505,967 +349,1448 @@ const Standings = () => {
           members: rMembers.map((m) => ({
             name: m.name.trim(),
             roll: m.roll.trim(),
-            batch: m.batch.trim().toUpperCase(),
+            batch: (
+              m.batchSelect === "other"
+                ? (m.customDigits ? `2K${m.customDigits}` : "")
+                : m.batchSelect || m.batch
+            ).trim().toUpperCase(),
           })),
           passkey: rTeamPasskey.trim(),
         });
       }
-      setRDone(true);
-      setRSuccess("Request submitted successfully!");
-      setRHandle(""); setRName(""); setRRoll(""); setRBatch(""); setRPasskey("");
-      setRTeamName(""); setRTeamVjudgeHandle(""); setRMembers([emptyMember(), emptyMember(), emptyMember()]); setRTeamPasskey("");
-      setRequestFormKey((k) => k + 1);
+      setRSuccess("Request submitted successfully! Waiting for admin approval.");
+      setTimeout(() => {
+        setRequestModal(false);
+        setRSuccess("");
+      }, 2500);
     } catch (err) {
-      setRError(err?.response?.data?.message || "Unable to submit request.");
+      setRError(err?.response?.data?.message || "Failed to submit request.");
     } finally {
       setRLoading(false);
     }
   };
 
-  // ── Reactivation ───────────────────────────────────────────────────────────
-  const handleReactivate = async (handle) => {
-    setReactivatingHandle(handle);
-    try {
-      await submitReactivationRequest(handle);
-      setReactivationMsg((p) => ({ ...p, [handle]: { ok: true, text: "Request submitted! Pending admin approval." } }));
-    } catch (err) {
-      setReactivationMsg((p) => ({ ...p, [handle]: { ok: false, text: err?.response?.data?.message || "Failed." } }));
-    } finally {
-      setReactivatingHandle(null);
+  // Batches options
+  const batchOptions = useMemo(
+    () => computeBatchOptions(standings, teamStandings, inactiveList),
+    [standings, teamStandings, inactiveList]
+  );
+
+  // Current view batches (strictly batches that have participants in the active/current view)
+  const currentBatches = useMemo(() => {
+    if (showInactive) {
+      return getBatchesFromList(inactiveList, (r) => [r.batch]);
+    }
+    if (activeTab === "team") {
+      return getBatchesFromList(teamStandings, (t) => (t.members || []).map((m) => m.batch));
+    }
+    return getBatchesFromList(standings, (r) => [r.batch]);
+  }, [showInactive, activeTab, standings, teamStandings, inactiveList]);
+
+  const primaryBatches = useMemo(() => currentBatches.slice(0, 5), [currentBatches]);
+  const otherBatches = useMemo(() => {
+    const fromData = currentBatches.slice(5);
+    const fallbackBatches = ["2K21", "2K20", "2K19", "2K18", "2K17", "2K16"];
+    const combined = [...fromData];
+    fallbackBatches.forEach((fb) => {
+      if (!primaryBatches.includes(fb) && !combined.includes(fb)) {
+        combined.push(fb);
+      }
+    });
+    return combined;
+  }, [currentBatches, primaryBatches]);
+
+  const selectedOthersCount = useMemo(
+    () => selectedBatches.filter((b) => !primaryBatches.includes(b)).length,
+    [selectedBatches, primaryBatches]
+  );
+
+  // Recent 5 batches for join modal (e.g. 2K26, 2K25, 2K24, 2K23, 2K22)
+  const joinBatchOptions = useMemo(
+    () => computeJoinBatchOptions(standings, teamStandings),
+    [standings, teamStandings]
+  );
+
+  const toggleBatch = (b) => {
+    setSelectedBatches((prev) =>
+      prev.includes(b) ? prev.filter((x) => x !== b) : [...prev, b]
+    );
+  };
+
+  // 3-state sorting: Ascending -> Descending -> Reset to default
+  const handleSort = (col) => {
+    if (sortCol !== col) {
+      setSortCol(col);
+      setSortDir("asc");
+    } else if (sortDir === "asc") {
+      setSortDir("desc");
+    } else if (sortDir === "desc") {
+      setSortCol(null);
+      setSortDir(null);
+    } else {
+      setSortCol(col);
+      setSortDir("asc");
     }
   };
 
-  const toggleBatch = (b) =>
-    setSelectedBatches((p) => (p.includes(b) ? p.filter((x) => x !== b) : [...p, b]));
+  // Filtered individual standings
+  const filteredIndividual = useMemo(() => {
+    let list = [...standings];
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(
+        (r) =>
+          r.name?.toLowerCase().includes(q) ||
+          r.handle?.toLowerCase().includes(q)
+      );
+    }
+    if (selectedBatches.length > 0) {
+      list = list.filter((r) => {
+        const b = normalizeBatch(r.batch);
+        return b && selectedBatches.includes(b);
+      });
+    }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════════════════════════════
+    // If reset / no active column sort, return default official rank order
+    if (!sortCol) {
+      list.sort((a, b) => (a.defaultRank || 0) - (b.defaultRank || 0));
+      return list;
+    }
+
+    // Sort by chosen column
+    list.sort((a, b) => {
+      let valA, valB;
+      if (sortCol === "rank") {
+        valA = a.defaultRank || 9999;
+        valB = b.defaultRank || 9999;
+      } else if (sortCol === "rating") {
+        valA = a.standingRating ?? a.rating ?? 1000;
+        valB = b.standingRating ?? b.rating ?? 1000;
+      } else if (sortCol === "solves") {
+        valA = a.solvedCount || 0;
+        valB = b.solvedCount || 0;
+      } else if (sortCol === "maxRating") {
+        valA = a.maxRating || 0;
+        valB = b.maxRating || 0;
+      } else if (sortCol === "name") {
+        valA = (a.name || a.handle || "").toLowerCase();
+        valB = (b.name || b.handle || "").toLowerCase();
+        return sortDir === "asc" ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      return sortDir === "asc" ? valA - valB : valB - valA;
+    });
+
+    return list;
+  }, [standings, search, selectedBatches, sortCol, sortDir]);
+
+  // Filtered team standings
+  const filteredTeams = useMemo(() => {
+    let list = [...teamStandings];
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(
+        (t) =>
+          t.teamName?.toLowerCase().includes(q) ||
+          (t.members || []).some(
+            (m) =>
+              m.name?.toLowerCase().includes(q) ||
+              m.roll?.toLowerCase().includes(q) ||
+              m.handle?.toLowerCase().includes(q)
+          )
+      );
+    }
+    if (selectedBatches.length > 0) {
+      list = list.filter((t) =>
+        (t.members || []).some((m) => {
+          const b = normalizeBatch(m.batch);
+          return b && selectedBatches.includes(b);
+        })
+      );
+    }
+    return list;
+  }, [teamStandings, search, selectedBatches]);
+
+  // Filtered inactive standings
+  const filteredInactive = useMemo(() => {
+    let list = [...inactiveList];
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(
+        (r) =>
+          r.name?.toLowerCase().includes(q) ||
+          r.handle?.toLowerCase().includes(q) ||
+          r.roll?.toLowerCase().includes(q)
+      );
+    }
+    if (selectedBatches.length > 0) {
+      list = list.filter((r) => {
+        const b = normalizeBatch(r.batch);
+        return b && selectedBatches.includes(b);
+      });
+    }
+    if (sortCol) {
+      list.sort((a, b) => {
+        let valA, valB;
+        if (sortCol === "maxRating") {
+          valA = a.maxRating || 0;
+          valB = b.maxRating || 0;
+        } else if (sortCol === "solves") {
+          valA = a.solvedCount || a.totalSolved || 0;
+          valB = b.solvedCount || b.totalSolved || 0;
+        } else if (sortCol === "name") {
+          valA = (a.name || a.handle || "").toLowerCase();
+          valB = (b.name || b.handle || "").toLowerCase();
+          return sortDir === "asc" ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return sortDir === "asc" ? valA - valB : valB - valA;
+      });
+    }
+    return list;
+  }, [inactiveList, search, selectedBatches, sortCol, sortDir]);
+
+  const maxSolvesOverall = useMemo(
+    () => Math.max(...standings.map((r) => r.solvedCount || 0), 1),
+    [standings]
+  );
+
   return (
-    <div className="container">
-
-      {/* ── HERO ──────────────────────────────────────────────────────────── */}
-      <div className="hero">
-        <div className="hero-inner" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <span className="badge">SGIPC · Competitive Programming</span>
-            <h1>Practice <span className="accent">Standings</span></h1>
-            <p>Live rankings from Codeforces practice &amp; VJudge contests</p>
-            <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
-              <button className="primary sm" onClick={openRequestModal}>＋ Request to Join</button>
+    <div className="standings-page-redesign">
+      {/* ── TOP HERO HEADER ── */}
+      <div className="std-hero">
+        <div className="std-hero-inner">
+          <div className="std-hero-brand">
+            <div className="std-logo-badge">
+              <img src="/logo.png" alt="SGIPC" className="std-logo-img" />
             </div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 16 }}>
-            {/* TFC Corner button detached for off-season (can be restored for next year's TFC):
-            <Link to="/tfc" className="tfc-corner-btn-red" title="Go to Team Formation Contest Corner">
-              <span>Go to TFC Corner</span>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z" />
-              </svg>
-            </Link>
-            */}
-            <img src="/logo.png" alt="SGIPC" className="hero-logo" />
-          </div>
-        </div>
-      </div>
-
-      {/* ── TABS ──────────────────────────────────────────────────────────── */}
-      <div className="tabs">
-        <button className={`tab ${activeTab === "individual" && !showInactive ? "active" : ""}`} onClick={() => switchTab("individual")}>
-          🏆 Individual
-        </button>
-        <button className={`tab ${activeTab === "team" ? "active" : ""}`} onClick={() => switchTab("team")}>
-          👥 Team
-        </button>
-      </div>
-
-      {/* ════════════════════════════════════════════════════════════════════
-          INDIVIDUAL STANDINGS  (or Inactive Panel inside it)
-          ════════════════════════════════════════════════════════════════════ */}
-      {activeTab === "individual" && !showInactive && (
-        <div className="card">
-          <div className="card-header">
             <div>
-              <h2>Individual Rankings</h2>
-              <p className="card-subtitle">Practice rating based on Codeforces solved problems</p>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              {lastUpdated && (
-                <span className="text-xs text-muted">Updated {lastUpdated.toLocaleTimeString()}</span>
-              )}
-              <button
-                className="secondary sm"
-                onClick={openInactive}
-                title="View inactive accounts"
-                style={{ display: "flex", alignItems: "center", gap: 6 }}
-              >
-                💤 Inactive
-              </button>
-            </div>
-          </div>
-
-          {/* Filter Bar */}
-          {!loading && standings.length > 0 && (
-            <div className="filter-bar">
-              <div className="filter-section" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  className={`secondary sm`}
-                  onClick={() => setBatchFilterOpen(!batchFilterOpen)}
-                >
-                  🎓 Batch{selectedBatches.length > 0 && (
-                    <span style={{ marginLeft: 5, background: "var(--primary)", color: "#fff", borderRadius: "999px", padding: "0px 6px", fontSize: 10, fontWeight: 700 }}>
-                      {selectedBatches.length}
-                    </span>
-                  )}
-                </button>
-                <button
-                  className="secondary sm"
-                  onClick={() => {
-                    setSyncInputHandle("");
-                    setSyncFeedback(null);
-                    setSyncModalOpen(true);
-                  }}
-                  title="Sync your Codeforces solves immediately (1h cooldown)"
-                >
-                  🔄 Sync Solves
-                </button>
-                {selectedBatches.map((b) => (
-                  <span key={b} className="batch-tag" onClick={() => toggleBatch(b)}>
-                    {b} <span>×</span>
-                  </span>
-                ))}
-                {selectedBatches.length > 0 && (
-                  <button className="secondary sm" onClick={() => setSelectedBatches([])}>Clear</button>
-                )}
+              <div className="std-badge-pill">
+                <span className="std-pulse-dot"></span>
+                <span>KUET Competitive Programming</span>
               </div>
-              <div style={{ width: "100%", maxWidth: 340 }}>
-                <div className="search-wrapper">
-                  <span className="search-icon">🔍</span>
-                  <input
-                    type="text"
-                    placeholder="Search handle, name or roll..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                  {searchQuery && <button className="search-clear" onClick={() => setSearchQuery("")}>×</button>}
-                </div>
-                {searchQuery && (
-                  <p className="text-xs text-muted" style={{ marginTop: 3, textAlign: "right" }}>
-                    {displayed.length} result{displayed.length !== 1 ? "s" : ""}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Batch dropdown */}
-          {batchFilterOpen && availableBatches.length > 0 && (
-            <div className="batch-dropdown">
-              {availableBatches.map((b) => (
-                <label key={b} className={`batch-checkbox-label ${selectedBatches.includes(b) ? "selected" : ""}`}>
-                  <input type="checkbox" checked={selectedBatches.includes(b)} onChange={() => toggleBatch(b)} style={{ width: "auto", accentColor: "var(--primary)" }} />
-                  {b}
-                </label>
-              ))}
-            </div>
-          )}
-
-          {loading && <div className="empty-state"><div className="loading-spinner" /><p>Loading standings...</p></div>}
-          {!loading && error && <div className="notice error">{error}</div>}
-          {!loading && !error && standings.length === 0 && <div className="empty-state"><p>No participants yet.</p></div>}
-
-          {!loading && standings.length > 0 && (
-            <>
-              {/* Legend */}
-              <div className="rating-legend">
-                <strong>Tiers:</strong>
-                {[
-                  { cls: "casual",      label: "<1200 Casual"          },
-                  { cls: "warmup",      label: "<1400 Warming Up"      },
-                  { cls: "persistent",  label: "<1800 Persistent"      },
-                  { cls: "relentless",  label: "<2000 Relentless"      },
-                  { cls: "unstoppable", label: "<2400 Unstoppable"      },
-                  { cls: "slayer",      label: "<3000 Problem Slayer"  },
-                  { cls: "legend",      label: "≥3000 Practice Legend" },
-                ].map(({ cls, label }) => (
-                  <div key={cls} className="legend-item">
-                    <div className={`legend-color ${cls}`} />
-                    <span>{label}</span>
-                  </div>
-                ))}
-              </div>
-
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th style={{ width: 50 }}>#</th>
-                    <th style={{ cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("handle")}>
-                      Handle / Name <SortIcon active={sortField === "handle"} direction={sortDir} />
-                    </th>
-                    <th style={{ width: 105, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("maxRating")}>
-                      CF Max <SortIcon active={sortField === "maxRating"} direction={sortDir} />
-                    </th>
-                    <th style={{ width: 85, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("solvedCount")}>
-                      Solved <SortIcon active={sortField === "solvedCount"} direction={sortDir} />
-                    </th>
-                    <th style={{ width: 165, cursor: "pointer", userSelect: "none" }} onClick={() => handleSortClick("standingRating")}>
-                      Practice Rating <SortIcon active={sortField === "standingRating"} direction={sortDir} />
-                    </th>
-                    <th style={{ width: 60, textAlign: "center" }}>Info</th>
-                    <th style={{ width: 90, textAlign: "center" }}>Activity</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayed.map((row) => {
-                    const gRank = globalRankMap.get(String(row.id)) ?? 0;
-                    const { level, cls } = getRatingLevel(row.standingRating);
-                    return (
-                      <tr key={row.id}>
-                        <td data-label="#">
-                          <div className={`rank-badge ${rankCls(gRank)}`}>{gRank}</div>
-                        </td>
-                        <td data-label="Handle">
-                          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                            <a href={`https://codeforces.com/profile/${row.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">
-                              {row.handle}
-                            </a>
-                            <button
-                              className="icon-btn"
-                              onClick={() => handleDirectSync(row.handle)}
-                              disabled={syncingHandle === row.handle}
-                              title="Sync solves from Codeforces (1h cooldown)"
-                              style={{
-                                padding: "2px 5px",
-                                fontSize: 11,
-                                lineHeight: 1,
-                                opacity: syncingHandle === row.handle ? 0.4 : 0.7,
-                                cursor: syncingHandle === row.handle ? "wait" : "pointer"
-                              }}
-                            >
-                              {syncingHandle === row.handle ? "⏳" : "🔄"}
-                            </button>
-                          </div>
-                          {(row.name || row.batch) && (
-                            <div className="handle-sub">
-                              {row.name && <span>{row.name}</span>}
-                              {row.name && row.batch && " · "}
-                              {row.batch && <span className="text-mono" style={{ fontSize: 11 }}>{normalizeBatch(row.batch) || row.batch}</span>}
-                            </div>
-                          )}
-                        </td>
-                        <td data-label="CF Max">
-                          <span className="stat-badge rating">{row.maxRating || "—"}</span>
-                        </td>
-                        <td data-label="Solved">
-                          <span className="stat-badge solved">{row.solvedCount}</span>
-                        </td>
-                        <td data-label="Practice Rating">
-                          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                            <span style={{ fontWeight: 700, fontSize: 15, color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-                              {row.standingRating}
-                            </span>
-                            <span className={`rating-level ${cls}`}>{level}</span>
-                          </div>
-                        </td>
-                        <td data-label="Info" style={{ textAlign: "center" }}>
-                          <button className="icon-btn" onClick={() => setInfoModal(row)} title="View details">
-                            👁
-                          </button>
-                        </td>
-                        <td data-label="Activity" style={{ textAlign: "center" }}>
-                          <button className="secondary sm" onClick={() => setActivityModal(row)}>
-                            Activity
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════
-          INACTIVE ACCOUNTS PANEL (inside individual tab)
-          ════════════════════════════════════════════════════════════════════ */}
-      {activeTab === "individual" && showInactive && (
-        <div className="inactive-panel">
-          <div className="inactive-panel-header">
-            <div className="inactive-panel-title">
-              <button className="back-btn" onClick={closeInactive}>
-                ← Back to Standings
-              </button>
-              <div style={{ width: 1, height: 18, background: "var(--border)" }} />
-              <h2>Inactive Accounts</h2>
-              <span className="inactive-badge">💤 No solves in 90 days</span>
-            </div>
-            <button className="secondary sm" onClick={fetchInactive}>↻ Refresh</button>
-          </div>
-
-          <div className="notice info" style={{ marginBottom: 16 }}>
-            These accounts have no Codeforces activity in the last 90 days and are excluded from active rankings.
-            You can apply for reactivation — the admin will review and approve it.
-          </div>
-
-          {inactiveLoading && <div className="empty-state"><div className="loading-spinner" /><p>Loading...</p></div>}
-          {!inactiveLoading && inactiveError && <div className="notice error">{inactiveError}</div>}
-          {!inactiveLoading && !inactiveError && inactiveList.length === 0 && (
-            <div className="empty-state"><p>🎉 No inactive accounts — everyone is active!</p></div>
-          )}
-          {!inactiveLoading && !inactiveError && inactiveList.length > 0 && (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th style={{ width: 44 }}>#</th>
-                  <th>Handle</th>
-                  <th style={{ width: 100 }}>CF Max</th>
-                  <th style={{ width: 90 }}>Total Solved</th>
-                  <th style={{ width: 120 }}>Inactive Since</th>
-                  <th style={{ width: 50, textAlign: "center" }}>Info</th>
-                  <th style={{ width: 160 }}>Reactivation</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inactiveList.map((row, idx) => {
-                  const msg = reactivationMsg[row.handle];
-                  const inactiveSince = row.inactiveSince
-                    ? new Date(row.inactiveSince).toLocaleDateString()
-                    : "—";
-                  return (
-                    <tr key={row.id}>
-                      <td data-label="#" style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)", fontSize: 13 }}>
-                        {idx + 1}
-                      </td>
-                      <td data-label="Handle">
-                        <a href={`https://codeforces.com/profile/${row.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">
-                          {row.handle}
-                        </a>
-                        {(row.name || row.batch) && (
-                          <div className="handle-sub">
-                            {row.name && <span>{row.name}</span>}
-                            {row.name && row.batch && " · "}
-                            {row.batch && <span className="text-mono" style={{ fontSize: 11 }}>{normalizeBatch(row.batch) || row.batch}</span>}
-                          </div>
-                        )}
-                      </td>
-                      <td data-label="CF Max"><span className="stat-badge rating">{row.maxRating || "—"}</span></td>
-                      <td data-label="Total Solved"><span className="stat-badge solved">{row.totalSolved}</span></td>
-                      <td data-label="Inactive Since"><span className="inactive-since">{inactiveSince}</span></td>
-                      <td data-label="Info" style={{ textAlign: "center" }}>
-                        <button className="icon-btn" onClick={() => setInactiveModal(row)} title="View details">
-                          👁
-                        </button>
-                      </td>
-                      <td data-label="Reactivation">
-                        {msg ? (
-                          <span style={{ fontSize: 12, color: msg.ok ? "var(--success)" : "var(--danger)", fontWeight: 500 }}>
-                            {msg.text}
-                          </span>
-                        ) : (
-                          <button
-                            className="btn-reactivate"
-                            disabled={reactivatingHandle === row.handle}
-                            onClick={() => handleReactivate(row.handle)}
-                          >
-                            {reactivatingHandle === row.handle ? "Sending…" : "Apply to Reactivate"}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════
-          TEAM STANDINGS
-          ════════════════════════════════════════════════════════════════════ */}
-      {activeTab === "team" && (
-        <div className="card">
-          <div className="card-header" style={{ alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
-            <div>
-              <h2>Team Rankings</h2>
-              <p className="card-subtitle">
-                {TEAM_RANKING_TYPES.find((t) => t.id === selectedTeamType)?.description || "VJudge contest performance rankings"}
+              <h1 className="std-title">
+                Practice <span className="std-accent">Standings</span>
+              </h1>
+              <p className="std-subtitle">
+                Official leaderboard tracking Codeforces problem solves &amp; VJudge team ratings
               </p>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <button
-                className="secondary sm"
-                onClick={() => setContestsModalOpen(true)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontWeight: 600,
-                  fontSize: 13,
-                }}
-              >
-                📜 Considered Contests ({teamContests.filter((c) => c.enabled !== false).length})
-              </button>
-              {/* 3 Type Options */}
-              <div style={{
-                display: "flex",
-                gap: 4,
-                background: "var(--bg-subtle)",
-                padding: 4,
-                borderRadius: "var(--radius-lg)",
-                border: "1px solid var(--border)",
-                flexWrap: "wrap"
-              }}>
-                {TEAM_RANKING_TYPES.map((t) => {
-                  const isActive = selectedTeamType === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => setSelectedTeamType(t.id)}
-                      style={{
-                        padding: "6px 14px",
-                        borderRadius: "var(--radius)",
-                        fontSize: 13,
-                        fontWeight: isActive ? 700 : 500,
-                        background: isActive ? "var(--primary)" : "transparent",
-                        color: isActive ? "#ffffff" : "var(--text-secondary)",
-                        border: "none",
-                        cursor: "pointer",
-                        transition: "all 0.15s ease",
-                        boxShadow: isActive ? "0 2px 8px rgba(37, 99, 235, 0.25)" : "none"
-                      }}
-                    >
-                      {t.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           </div>
 
-          {teamLoading && <div className="empty-state"><div className="loading-spinner" /><p>Loading team standings...</p></div>}
-          {!teamLoading && teamError && <div className="notice error">{teamError}</div>}
-          {!teamLoading && !teamError && (teamStandingsMap[selectedTeamType] || teamStandings).length === 0 && <div className="empty-state"><p>No team standings yet.</p></div>}
-          {!teamLoading && !teamError && (teamStandingsMap[selectedTeamType] || teamStandings).length > 0 && (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th style={{ width: 50 }}>#</th>
-                  <th>Team Name</th>
-                  <th style={{ width: 100 }}>Contests</th>
-                  <th style={{ width: 130 }}>Rating</th>
-                  <th style={{ width: 50, textAlign: "center" }}>Info</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(teamStandingsMap[selectedTeamType] || teamStandings).map((row) => (
-                  <tr key={row.id}>
-                    <td data-label="#"><div className={`rank-badge ${rankCls(row.rank)}`}>{row.rank}</div></td>
-                    <td data-label="Team Name">
-                      <span style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: 14 }}>{row.name}</span>
-                      {((row.members && row.members.length > 0) || (row.aliases && row.aliases.length > 0)) && (
-                        <div className="handle-sub" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                          {row.members && row.members.length > 0
-                            ? row.members.map((m) => m.name).filter(Boolean).join(" · ")
-                            : row.aliases.join(" · ")}
-                        </div>
-                      )}
-                    </td>
-                    <td data-label="Contests" style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
-                      {row.contests}
-                    </td>
-                    <td data-label="Rating">
-                      <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--primary)", fontSize: 15 }}>
-                        {row.ratingDisplay}
-                      </span>
-                    </td>
-                    <td data-label="Info" style={{ textAlign: "center" }}>
-                      <button className="icon-btn" onClick={() => setTeamInfoModal(row)} title="View team details">
-                        👁
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════
-          REQUEST MODAL
-          ════════════════════════════════════════════════════════════════════ */}
-      {requestModal && (
-        <div className="modal-overlay" onClick={() => setRequestModal(false)}>
-          <div className="modal-content" style={{ maxWidth: 580 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Request to Join Standings</h2>
-              <button className="modal-close" onClick={() => setRequestModal(false)}>×</button>
+          <div className="std-hero-actions">
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                className="std-theme-toggle"
+                onClick={toggleTheme}
+                title={`Switch to ${theme === "dark" ? "Light" : "Dark"} Mode`}
+                aria-label="Toggle theme"
+              >
+                <span>{theme === "dark" ? "☀️ Light" : "🌙 Dark"}</span>
+              </button>
+              <button className="std-btn-join" onClick={() => setRequestModal(true)}>
+                <span>＋ Request to Join</span>
+              </button>
             </div>
-            <div className="modal-body">
-              {rDone ? (
-                <div style={{ textAlign: "center", padding: "28px 16px 16px" }}>
-                  <div style={{
-                    width: 68,
-                    height: 68,
-                    borderRadius: "50%",
-                    background: "rgba(16, 185, 129, 0.12)",
-                    border: "2.5px solid #10b981",
-                    color: "#10b981",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 34,
-                    fontWeight: 800,
-                    marginBottom: 16,
-                    boxShadow: "0 4px 20px rgba(16, 185, 129, 0.25)"
-                  }}>
-                    ✓
-                  </div>
-                  <h3 style={{ fontSize: 22, fontWeight: 700, color: "#10b981", margin: "0 0 8px" }}>Done</h3>
-                  <p style={{ color: "var(--text-secondary)", fontSize: 14, margin: "0 0 24px", maxWidth: 400, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
-                    Your request to join standings has been submitted successfully and is pending admin approval.
-                  </p>
-                  <button
-                    className="primary"
-                    onClick={() => setRequestModal(false)}
-                    style={{
-                      minWidth: 130,
-                      background: "#10b981",
-                      borderColor: "#10b981",
-                      color: "#ffffff",
-                      fontWeight: 700,
-                      boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)"
-                    }}
-                  >
-                    ✓ Done
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {/* Tab switcher */}
-                  <div className="tabs" style={{ marginBottom: 18 }}>
-                    <button className={`tab ${requestTab === "handle" ? "active" : ""}`} onClick={() => { setRequestTab("handle"); setRError(""); setRSuccess(""); }}>Individual</button>
-                    <button className={`tab ${requestTab === "team" ? "active" : ""}`} onClick={() => { setRequestTab("team"); setRError(""); setRSuccess(""); }}>Team</button>
-                  </div>
-
-                  {rError && <div className="notice error" style={{ marginBottom: 14 }}>{rError}</div>}
-                  {rSuccess && <div className="notice success" style={{ marginBottom: 14 }}>{rSuccess}</div>}
-
-                  {/* Individual form */}
-                  {requestTab === "handle" && (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                      <div className="field" style={{ gridColumn: "1 / -1" }}>
-                        <label>Codeforces Handle *</label>
-                        <input type="text" value={rHandle} onChange={(e) => setRHandle(e.target.value)} placeholder="e.g. tourist" autoComplete="off" />
-                      </div>
-                      <div className="field">
-                        <label>Full Name *</label>
-                        <input type="text" value={rName} onChange={(e) => setRName(e.target.value)} placeholder="Your name" autoComplete="off" />
-                      </div>
-                      <div className="field">
-                        <label>Roll Number *</label>
-                        <input type="text" value={rRoll} onChange={(e) => setRRoll(e.target.value)} placeholder="e.g. 2024001" autoComplete="off" />
-                      </div>
-                      <div className="field">
-                        <label>Batch *</label>
-                        <BatchSelect
-                          key={`${requestFormKey}-indiv`}
-                          value={rBatch}
-                          onChange={setRBatch}
-                          options={formBatchOptions}
-                          placeholder="Select Batch *"
-                        />
-                      </div>
-                      <div className="field">
-                        <label>SGIPC Passkey *</label>
-                        <input type="password" value={rPasskey} onChange={(e) => setRPasskey(e.target.value)} placeholder="Passkey" autoComplete="new-password" />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Team form — 3 members */}
-                  {requestTab === "team" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                      <div className="field">
-                        <label>Team Name *</label>
-                        <input type="text" value={rTeamName} onChange={(e) => setRTeamName(e.target.value)} placeholder="Team name (e.g. KUET_Alpha)" autoComplete="off" />
-                      </div>
-
-                      <div className="field">
-                        <label>VJudge Team Handle *</label>
-                        <input type="text" value={rTeamVjudgeHandle} onChange={(e) => setRTeamVjudgeHandle(e.target.value)} placeholder="Team VJudge handle for rankings" autoComplete="off" />
-                      </div>
-
-                      {[0, 1, 2].map((i) => (
-                        <div key={i} className="member-section">
-                          <div className="member-section-label">Member {i + 1}</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                            <div className="field">
-                              <label>Full Name *</label>
-                              <input type="text" value={rMembers[i].name} onChange={(e) => updateMember(i, "name", e.target.value)} placeholder="Full name" autoComplete="off" />
-                            </div>
-                            <div className="field">
-                              <label>Roll Number *</label>
-                              <input type="text" value={rMembers[i].roll} onChange={(e) => updateMember(i, "roll", e.target.value)} placeholder="Roll" autoComplete="off" />
-                            </div>
-                            <div className="field">
-                              <label>Batch *</label>
-                              <BatchSelect
-                                key={`${requestFormKey}-team-${i}`}
-                                value={rMembers[i].batch}
-                                onChange={(val) => updateMember(i, "batch", val)}
-                                options={formBatchOptions}
-                                placeholder="Select Batch *"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-
-                      <div className="field">
-                        <label>SGIPC Passkey *</label>
-                        <input type="password" value={rTeamPasskey} onChange={(e) => setRTeamPasskey(e.target.value)} placeholder="Passkey" autoComplete="new-password" />
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-            {!rDone && (
-              <div className="modal-footer">
-                <button className="secondary" onClick={() => setRequestModal(false)}>Cancel</button>
-                <button className="primary" onClick={submitRequest} disabled={rLoading}>
-                  {rLoading ? "Submitting…" : "Submit Request"}
-                </button>
-              </div>
+            {lastUpdated && (
+              <span className="std-sync-time">
+                Synced at {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
             )}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* ════════════════════════════════════════════════════════════════════
-          INFO MODAL (individual)
-          ════════════════════════════════════════════════════════════════════ */}
-      {infoModal && (
-        <div className="modal-overlay" onClick={() => setInfoModal(null)}>
-          <div className="modal-content" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Participant Details</h2>
-              <button className="modal-close" onClick={() => setInfoModal(null)}>×</button>
-            </div>
-            <div className="modal-body">
-              {[
-                ["Handle",                <a href={`https://codeforces.com/profile/${infoModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{infoModal.handle}</a>],
-                ["Name",                  infoModal.name  || "Not provided"],
-                ["Roll",                  infoModal.roll  || "Not provided"],
-                ["Batch",                 normalizeBatch(infoModal.batch) || infoModal.batch || "Not provided"],
-                ["CF Max Rating",         <span className="stat-badge rating">{infoModal.maxRating || "—"}</span>],
-                ["Practice Rating",       <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700 }}>{infoModal.standingRating}</span>],
-                ["Global Rank (Practice)",<span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--primary)" }}>#{globalRankMap.get(String(infoModal.id)) ?? "?"}</span>],
-                ["Global Rank (CF Max)",  <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--warning)" }}>#{cfMaxRankMap.get(String(infoModal.id)) ?? "?"}</span>],
-              ].map(([label, value]) => (
-                <div key={label} className="detail-row">
-                  <span className="detail-label">{label}</span>
-                  <span className="detail-value">{value}</span>
+      {/* ── MAIN CONTENT CARD ── */}
+      <div className="std-container">
+        {/* Tab Selector */}
+        <div className="std-tabs-bar">
+          <div className="std-tabs-group">
+            <button
+              className={`std-tab-btn ${activeTab === "individual" && !showInactive ? "active" : ""}`}
+              onClick={() => {
+                setActiveTab("individual");
+                setShowInactive(false);
+                setSelectedBatches([]);
+                setOthersOpen(false);
+              }}
+            >
+              <span>🏆 Individual Rankings</span>
+              <span className="std-tab-count">{individualLoading ? "…" : standings.length}</span>
+            </button>
+
+            <button
+              className={`std-tab-btn ${activeTab === "team" ? "active" : ""}`}
+              onClick={() => {
+                setActiveTab("team");
+                setShowInactive(false);
+                setSelectedBatches([]);
+                setOthersOpen(false);
+              }}
+            >
+              <span>👥 Team Leaderboard</span>
+              <span className="std-tab-count">{teamLoading ? "…" : teamStandings.length}</span>
+            </button>
+          </div>
+
+          <button
+            className={`std-btn-inactive ${showInactive ? "active" : ""}`}
+            onClick={() => {
+              const nextState = !showInactive;
+              setShowInactive(nextState);
+              if (nextState) fetchInactive();
+              setSelectedBatches([]);
+              setOthersOpen(false);
+            }}
+            title="View inactive handles"
+          >
+            <span>💤 Inactive Accounts</span>
+            {inactiveList.length > 0 && <span className="std-badge-inactive">{inactiveList.length}</span>}
+          </button>
+        </div>
+
+        {/* ── CONTROLS & BATCH FILTER BAR (Active on all views) ── */}
+        <div className="std-controls-card">
+          <div className="std-search-wrapper">
+            <span className="std-search-icon">🔍</span>
+            <input
+              type="text"
+              placeholder={
+                showInactive
+                  ? "Search inactive accounts by name, roll, or handle..."
+                  : activeTab === "team"
+                  ? "Search teams by name, member, or roll..."
+                  : "Search by name, roll, or handle..."
+              }
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="std-search-input"
+            />
+            {search && (
+              <button className="std-clear-btn" onClick={() => setSearch("")}>
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Batch Filter Pills + Others Dropdown */}
+          <div className="std-batches-list">
+            <span className="std-filter-label">Batch:</span>
+            <button
+              className={`std-batch-pill ${selectedBatches.length === 0 ? "active" : ""}`}
+              onClick={() => setSelectedBatches([])}
+            >
+              All
+            </button>
+            {primaryBatches.map((b) => (
+              <button
+                key={b}
+                className={`std-batch-pill ${selectedBatches.includes(b) ? "active" : ""}`}
+                onClick={() => toggleBatch(b)}
+              >
+                {b}
+              </button>
+            ))}
+            <div className="std-others-wrapper" ref={othersRef}>
+              <button
+                type="button"
+                className={`std-others-btn ${selectedOthersCount > 0 ? "active" : ""}`}
+                onClick={() => setOthersOpen((prev) => !prev)}
+                aria-expanded={othersOpen}
+              >
+                <span>Others</span>
+                {selectedOthersCount > 0 && (
+                  <span className="std-others-badge">{selectedOthersCount}</span>
+                )}
+                <span style={{ fontSize: 9 }}>▾</span>
+              </button>
+              {othersOpen && (
+                <div className="std-others-dropdown">
+                  <div style={{ maxHeight: 180, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+                    {otherBatches.map((b) => (
+                      <button
+                        key={b}
+                        type="button"
+                        className={`std-others-item ${selectedBatches.includes(b) ? "active" : ""}`}
+                        onClick={() => toggleBatch(b)}
+                      >
+                        <span>{b}</span>
+                        {selectedBatches.includes(b) && <span>✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="std-others-custom">
+                    <div className="std-others-custom-title">Custom Batch</div>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (othersCustomDigits.trim().length === 2) {
+                          const customBatch = `2K${othersCustomDigits.trim()}`;
+                          if (!selectedBatches.includes(customBatch)) {
+                            setSelectedBatches((prev) => [...prev, customBatch]);
+                          }
+                          setOthersCustomDigits("");
+                        }
+                      }}
+                      className="std-others-custom-row"
+                    >
+                      <div className="std-batch-input-group" style={{ maxWidth: 88 }}>
+                        <span className="std-batch-prefix" style={{ padding: "4px 6px", fontSize: 11 }}>2K</span>
+                        <input
+                          type="text"
+                          className="std-batch-digits-input"
+                          placeholder="20"
+                          maxLength={2}
+                          value={othersCustomDigits}
+                          onChange={(e) => setOthersCustomDigits(e.target.value.replace(/\D/g, ""))}
+                          style={{ padding: "4px 6px", fontSize: 11 }}
+                        />
+                      </div>
+                      <button type="submit" className="std-others-add-btn" disabled={othersCustomDigits.length !== 2}>
+                        + Add
+                      </button>
+                    </form>
+                  </div>
                 </div>
-              ))}
-            </div>
-            <div className="modal-footer">
-              <button className="secondary" onClick={() => setInfoModal(null)}>Close</button>
+              )}
             </div>
           </div>
         </div>
-      )}
 
-      {/* ════════════════════════════════════════════════════════════════════
-          TEAM INFO MODAL
-          ════════════════════════════════════════════════════════════════════ */}
-      {teamInfoModal && (
-        <div className="modal-overlay" onClick={() => setTeamInfoModal(null)}>
-          <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Team Details</h2>
-              <button className="modal-close" onClick={() => setTeamInfoModal(null)}>×</button>
-            </div>
-            <div className="modal-body">
-              {[
-                ["Team Name", teamInfoModal.name],
-                ["VJudge Handle", (teamInfoModal.aliases || []).join(", ") || "—"],
-                ["Rating", <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--primary)" }}>{teamInfoModal.ratingDisplay}</span>],
-                ["Contests Participated", teamInfoModal.contests || 0],
-              ].map(([label, value]) => (
-                <div key={label} className="detail-row">
-                  <span className="detail-label">{label}</span>
-                  <span className="detail-value">{value}</span>
-                </div>
-              ))}
+        {/* Error message */}
+        {error && <div className="notice error">{error}</div>}
 
-              <div style={{ marginTop: 16 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", marginBottom: 8 }}>
-                  Team Members
+        {/* ══════════════════════════════════════════════════════════════════
+            VIEW 1: INDIVIDUAL RANKINGS
+            ══════════════════════════════════════════════════════════════════ */}
+        {activeTab === "individual" && !showInactive && (
+          <div className="std-table-card">
+            {individualLoading ? (
+              <div className="std-loading-state">
+                <div className="std-spinner"></div>
+                <p>Loading individual standings…</p>
+              </div>
+            ) : filteredIndividual.length === 0 ? (
+              <div className="std-empty-state">
+                <div style={{ fontSize: 36, marginBottom: 8 }}>🔍</div>
+                <h3>No participants found</h3>
+                <p>Try adjusting your search query or batch filters.</p>
+              </div>
+            ) : (
+              <div className="table-wrapper">
+                <table className="std-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 75, textAlign: "center" }} onClick={() => handleSort("rank")}>
+                        Rank <SortIcon col="rank" activeCol={sortCol} dir={sortDir} />
+                      </th>
+                      <th onClick={() => handleSort("name")}>
+                        Participant <SortIcon col="name" activeCol={sortCol} dir={sortDir} />
+                      </th>
+                      <th style={{ width: 220 }} onClick={() => handleSort("solves")}>
+                        Solved Progress <SortIcon col="solves" activeCol={sortCol} dir={sortDir} />
+                      </th>
+                      <th style={{ width: 160, textAlign: "center" }} onClick={() => handleSort("rating")}>
+                        Practice Rating <SortIcon col="rating" activeCol={sortCol} dir={sortDir} />
+                      </th>
+                      <th style={{ width: 110, textAlign: "center" }} onClick={() => handleSort("maxRating")}>
+                        CF Max <SortIcon col="maxRating" activeCol={sortCol} dir={sortDir} />
+                      </th>
+                      <th style={{ width: 65, textAlign: "center" }}>Info</th>
+                      <th style={{ width: 65, textAlign: "center" }}>Sync</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredIndividual.map((row, idx) => {
+                      const displayRank = row.defaultRank || row.rank || idx + 1;
+                      const ratingVal = row.standingRating ?? row.rating ?? 1000;
+                      const tier = getRatingLevel(ratingVal);
+                      const solvePct = Math.min(100, Math.round(((row.solvedCount || 0) / maxSolvesOverall) * 100));
+
+                      return (
+                        <tr key={row.handle || idx} className={`std-row ${displayRank <= 3 ? `top-${displayRank}` : ""}`}>
+                          {/* Rank */}
+                          <td style={{ textAlign: "center" }}>
+                            <div className={`std-rank-badge rank-${displayRank}`}>
+                              {displayRank === 1 ? "👑 1" : displayRank === 2 ? "🥈 2" : displayRank === 3 ? "🥉 3" : `#${displayRank}`}
+                            </div>
+                          </td>
+
+                          {/* Participant with Batch below Name */}
+                          <td>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                              <div className="std-participant-name">{row.name || row.handle}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <a
+                                  href={`https://codeforces.com/profile/${row.handle}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="std-cf-link"
+                                >
+                                  <span>{row.handle}</span>
+                                  <span style={{ fontSize: 10 }}>↗</span>
+                                </a>
+                                {row.batch && (
+                                  <span className="std-batch-badge">
+                                    {normalizeBatch(row.batch) || row.batch}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Solves Progress Bar */}
+                          <td>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                              <span style={{ fontWeight: 800, color: "var(--text-primary)" }}>
+                                {row.solvedCount?.toLocaleString() || 0}
+                              </span>
+                              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>solves</span>
+                            </div>
+                            <div className="std-progress-bg">
+                              <div
+                                className="std-progress-bar"
+                                style={{
+                                  width: `${solvePct}%`,
+                                  background: displayRank === 1 ? "linear-gradient(90deg, #f59e0b, #ef4444)" : "linear-gradient(90deg, #38bdf8, #6366f1)",
+                                }}
+                              />
+                            </div>
+                          </td>
+
+                          {/* Practice Rating */}
+                          <td style={{ textAlign: "center" }}>
+                            <div className="std-rating-num" style={{ color: tier.color }}>
+                              {ratingVal}
+                            </div>
+                            <span className={`std-tier-pill tier-${tier.cls}`}>
+                              {tier.level}
+                            </span>
+                          </td>
+
+                          {/* CF Max */}
+                          <td style={{ textAlign: "center" }}>
+                            <span className="std-cf-max">
+                              {row.maxRating || "—"}
+                            </span>
+                          </td>
+
+                          {/* Info Eye Button */}
+                          <td style={{ textAlign: "center" }}>
+                            <button
+                              className="std-btn-icon"
+                              onClick={() => setHistoryTarget(row)}
+                              title="View performance & daily activity info"
+                              aria-label="View Info"
+                            >
+                              👁️
+                            </button>
+                          </td>
+
+                          {/* Sync / Refresh */}
+                          <td style={{ textAlign: "center" }}>
+                            <button
+                              className="std-btn-icon"
+                              onClick={() => handleSyncHandle(row.handle)}
+                              disabled={syncingHandle === row.handle}
+                              title="Force refresh Codeforces stats"
+                              aria-label="Sync Handle"
+                            >
+                              <span className={syncingHandle === row.handle ? "spinning" : ""}>🔄</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════
+            VIEW 2: TEAM LEADERBOARD
+            ══════════════════════════════════════════════════════════════════ */}
+        {activeTab === "team" && !showInactive && (
+          <div className="std-table-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
+                  Team Standings ({filteredTeams.length})
                 </h3>
-                {teamInfoModal.members && teamInfoModal.members.length > 0 ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {teamInfoModal.members.map((m, idx) => (
-                      <div key={idx} style={{ background: "var(--bg-subtle)", padding: "8px 12px", borderRadius: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: 13 }}>{m.name || `Member ${idx + 1}`}</div>
-                          {m.roll && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Roll: {m.roll}</div>}
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 0" }}>
+                  Official 3-person team leaderboard tracking VJudge contests &amp; Elo ratings
+                </p>
+              </div>
+              <button
+                type="button"
+                className="secondary sm"
+                onClick={() => setContestsModalOpen(true)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700 }}
+              >
+                <span>📋 Counted Contests ({teamContests.filter((c) => c.enabled !== false).length})</span>
+              </button>
+            </div>
+
+            {teamLoading ? (
+              <div className="std-loading-state">
+                <div className="std-spinner"></div>
+                <p>Loading team standings…</p>
+              </div>
+            ) : filteredTeams.length === 0 ? (
+              <div className="std-empty-state">
+                <div style={{ fontSize: 36, marginBottom: 8 }}>👥</div>
+                <h3>No teams found</h3>
+                <p>Try refining your search or request to register a team.</p>
+              </div>
+            ) : (
+              <div className="table-wrapper">
+                <table className="std-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 70, textAlign: "center" }}>Rank</th>
+                      <th>Team Name &amp; VJudge Profile</th>
+                      <th style={{ width: 140, textAlign: "center" }}>Team Elo Rating</th>
+                      <th style={{ width: 100, textAlign: "center" }}>Contests</th>
+                      <th style={{ width: 65, textAlign: "center" }}>Info</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTeams.map((team, idx) => {
+                      const displayRank = team.rank || team.defaultRank || idx + 1;
+                      const vjudgeHandle = team.teamVjudgeHandle || team.aliases?.[0] || team.teamName || team.name;
+                      const contestsCount = team.contests ?? team.contestsHistory?.length ?? 0;
+                      return (
+                        <tr key={team.id || team._id || idx} className={`std-row ${displayRank <= 3 ? `top-${displayRank}` : ""}`}>
+                          <td style={{ textAlign: "center" }}>
+                            <div className={`std-rank-badge rank-${displayRank}`}>
+                              {displayRank === 1 ? "👑 1" : displayRank === 2 ? "🥈 2" : displayRank === 3 ? "🥉 3" : `#${displayRank}`}
+                            </div>
+                          </td>
+
+                          <td>
+                            <div className="std-participant-name">{team.teamName || team.name}</div>
+                            {vjudgeHandle && (
+                              <a
+                                href={`https://vjudge.net/user/${encodeURIComponent(vjudgeHandle)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="std-cf-link"
+                              >
+                                <span>VJ: {vjudgeHandle}</span>
+                                <span style={{ fontSize: 10 }}>↗</span>
+                              </a>
+                            )}
+                          </td>
+
+                          <td style={{ textAlign: "center" }}>
+                            <div className="std-rating-num" style={{ color: "var(--accent)" }}>
+                              {Math.round(team.rating || 1500)}
+                            </div>
+                          </td>
+
+                          <td style={{ textAlign: "center" }}>
+                            <span className="std-roll-pill">{contestsCount}</span>
+                          </td>
+
+                          <td style={{ textAlign: "center" }}>
+                            <button
+                              className="std-btn-icon"
+                              onClick={() => setTeamHistoryTarget(team)}
+                              title="View Team Info & Contests"
+                              aria-label="View Team Info"
+                            >
+                              👁️
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════
+            VIEW 3: INACTIVE ACCOUNTS
+            ══════════════════════════════════════════════════════════════════ */}
+        {showInactive && (
+          <div className="std-table-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 800 }}>Inactive Accounts Archive</h2>
+                <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                  Handles inactive for over 90 days. Click Reactivate to submit a restore request.
+                </p>
+              </div>
+              <button className="primary sm" onClick={() => setShowInactive(false)}>
+                ← Back to Active Standings
+              </button>
+            </div>
+
+            {inactiveLoading ? (
+              <div className="std-loading-state">
+                <div className="std-spinner"></div>
+                <p>Loading inactive archive…</p>
+              </div>
+            ) : filteredInactive.length === 0 ? (
+              <div className="std-empty-state">
+                <div style={{ fontSize: 36, marginBottom: 8 }}>💤</div>
+                <h3>No inactive accounts found</h3>
+                <p>Try adjusting your search query or batch filters.</p>
+              </div>
+            ) : (
+              <div className="table-wrapper">
+                <table className="std-table">
+                  <thead>
+                    <tr>
+                      <th onClick={() => handleSort("name")}>
+                        Participant <SortIcon col="name" activeCol={sortCol} dir={sortDir} />
+                      </th>
+                      <th style={{ width: 120, textAlign: "center" }} onClick={() => handleSort("maxRating")}>
+                        CF Max <SortIcon col="maxRating" activeCol={sortCol} dir={sortDir} />
+                      </th>
+                      <th style={{ width: 130, textAlign: "center" }} onClick={() => handleSort("solves")}>
+                        Past Solves <SortIcon col="solves" activeCol={sortCol} dir={sortDir} />
+                      </th>
+                      <th style={{ width: 65, textAlign: "center" }}>Info</th>
+                      <th style={{ width: 180, textAlign: "right" }}>Reactivate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredInactive.map((row) => (
+                      <tr key={row.handle} className="std-row">
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                            <div className="std-participant-name">{row.name || row.handle}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <a
+                                href={`https://codeforces.com/profile/${row.handle}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="std-cf-link"
+                              >
+                                <span>{row.handle}</span>
+                                <span style={{ fontSize: 10 }}>↗</span>
+                              </a>
+                              {row.batch && (
+                                <span className="std-batch-badge">
+                                  {normalizeBatch(row.batch) || row.batch}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          <span className="std-rating-badge">{row.maxRating || "—"}</span>
+                        </td>
+                        <td style={{ textAlign: "center", fontWeight: 700, fontSize: 14 }}>
+                          {(row.solvedCount || row.totalSolved || 0).toLocaleString()}
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          <button
+                            type="button"
+                            className="std-info-btn"
+                            onClick={() => setHistoryTarget(row)}
+                            title={`View details & activity for ${row.name || row.handle}`}
+                            aria-label={`View info for ${row.name || row.handle}`}
+                          >
+                            👁️
+                          </button>
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          {reactivationMsg[row.handle] ? (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: reactivationMsg[row.handle].ok ? "#10b981" : "#ef4444",
+                              }}
+                            >
+                              {reactivationMsg[row.handle].text}
+                            </span>
+                          ) : (
+                            <button
+                              className="secondary sm"
+                              onClick={() => handleReactivate(row.handle)}
+                              disabled={reactivatingHandle === row.handle}
+                            >
+                              {reactivatingHandle === row.handle ? "Submitting…" : "Request Reactivation"}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════
+          MODAL: REQUEST TO JOIN (INDIVIDUAL OR TEAM)
+          ══════════════════════════════════════════════════════════════════ */}
+      {requestModal && (
+        <div className="std-modal-overlay" onClick={() => setRequestModal(false)}>
+          <div className="std-modal-card join-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="std-modal-header">
+              <div>
+                <h2>Request to Join Standings</h2>
+                <p>Register your handle or team to get listed on the leaderboard</p>
+              </div>
+              <button className="std-modal-close" onClick={() => setRequestModal(false)}>
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Tabs */}
+            <div className="std-modal-tabs">
+              <button
+                className={`std-modal-tab ${requestTab === "handle" ? "active" : ""}`}
+                onClick={() => setRequestTab("handle")}
+              >
+                👤 Individual Handle
+              </button>
+              <button
+                className={`std-modal-tab ${requestTab === "team" ? "active" : ""}`}
+                onClick={() => setRequestTab("team")}
+              >
+                👥 VJudge Team
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitRequest} className="std-modal-body">
+              {rError && <div className="notice error">{rError}</div>}
+              {rSuccess && <div className="notice success">{rSuccess}</div>}
+
+              {requestTab === "handle" ? (
+                <>
+                  <div className="std-field">
+                    <label>Codeforces Handle *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. tourist"
+                      value={rHandle}
+                      onChange={(e) => setRHandle(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="std-field">
+                    <label>Full Name *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. John Doe"
+                      value={rName}
+                      onChange={(e) => setRName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div className="std-field">
+                      <label>Roll Number *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 2107070"
+                        value={rRoll}
+                        onChange={(e) => setRRoll(e.target.value)}
+                        autoComplete="off"
+                        required
+                      />
+                    </div>
+                    <div className="std-field">
+                      <label>Batch *</label>
+                      <select
+                        value={rBatchSelect}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setRBatchSelect(val);
+                          if (val !== "other") {
+                            setRBatch(val);
+                          } else {
+                            setRBatch(rCustomBatchDigits ? `2K${rCustomBatchDigits}` : "");
+                          }
+                        }}
+                        required
+                      >
+                        <option value="">Select Batch</option>
+                        {joinBatchOptions.map((b) => (
+                          <option key={b} value={b}>
+                            {b}
+                          </option>
+                        ))}
+                        <option value="other">Other...</option>
+                      </select>
+                    </div>
+                  </div>
+                  {rBatchSelect === "other" && (
+                    <div className="std-field" style={{ marginTop: 4 }}>
+                      <label style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                        Enter Batch (2K fixed + 2 digits) *
+                      </label>
+                      <div className="std-batch-input-group">
+                        <span className="std-batch-prefix">2K</span>
+                        <input
+                          type="text"
+                          className="std-batch-digits-input"
+                          placeholder="20"
+                          maxLength={2}
+                          value={rCustomBatchDigits}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, "");
+                            setRCustomBatchDigits(digits);
+                            setRBatch(digits ? `2K${digits}` : "");
+                          }}
+                          required
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                  )}
+                  <div className="std-field">
+                    <label>Passkey *</label>
+                    <input
+                      type="password"
+                      placeholder="Enter submission passkey"
+                      value={rPasskey}
+                      onChange={(e) => setRPasskey(e.target.value)}
+                      autoComplete="new-password"
+                      required
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="std-field">
+                    <label>Team Name *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. KUET_Effervescent"
+                      value={rTeamName}
+                      onChange={(e) => setRTeamName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="std-field">
+                    <label>Team VJudge Handle *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. KUET_Effervescent"
+                      value={rTeamVjudgeHandle}
+                      onChange={(e) => setRTeamVjudgeHandle(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <label style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, display: "block" }}>
+                      Team Members (3 Members Required)
+                    </label>
+                    {[0, 1, 2].map((idx) => (
+                      <div key={idx} className="std-team-member-card">
+                        <div className="std-member-card-title">
+                          <span>👤</span>
+                          <span>Member #{idx + 1}</span>
                         </div>
-                        {m.batch && (
-                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "var(--card-bg)", border: "1px solid var(--border)" }}>
-                            {normalizeBatch(m.batch) || m.batch}
-                          </span>
+                        <div className="std-member-grid">
+                          <input
+                            type="text"
+                            placeholder="Full Name"
+                            value={rMembers[idx].name}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRMembers((prev) => prev.map((m, i) => (i === idx ? { ...m, name: val } : m)));
+                            }}
+                            required
+                          />
+                          <input
+                            type="text"
+                            placeholder="e.g. 2107070"
+                            value={rMembers[idx].roll}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRMembers((prev) => prev.map((m, i) => (i === idx ? { ...m, roll: val } : m)));
+                            }}
+                            autoComplete="off"
+                            required
+                          />
+                          <select
+                            value={
+                              rMembers[idx].batchSelect ||
+                              (joinBatchOptions.includes(rMembers[idx].batch)
+                                ? rMembers[idx].batch
+                                : rMembers[idx].batch
+                                ? "other"
+                                : "")
+                            }
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRMembers((prev) =>
+                                prev.map((m, i) =>
+                                  i === idx
+                                    ? {
+                                        ...m,
+                                        batchSelect: val,
+                                        batch:
+                                          val === "other"
+                                            ? m.customDigits
+                                              ? `2K${m.customDigits}`
+                                              : ""
+                                            : val,
+                                      }
+                                    : m
+                                )
+                              );
+                            }}
+                            required
+                          >
+                            <option value="">Batch</option>
+                            {joinBatchOptions.map((b) => (
+                              <option key={b} value={b}>
+                                {b}
+                              </option>
+                            ))}
+                            <option value="other">Other...</option>
+                          </select>
+                        </div>
+                        {(rMembers[idx].batchSelect === "other" ||
+                          (!joinBatchOptions.includes(rMembers[idx].batch) &&
+                            rMembers[idx].batch)) && (
+                          <div style={{ marginTop: 8 }}>
+                            <div className="std-batch-input-group">
+                              <span
+                                className="std-batch-prefix"
+                                style={{ padding: "6px 10px", fontSize: 12 }}
+                              >
+                                2K
+                              </span>
+                              <input
+                                type="text"
+                                className="std-batch-digits-input"
+                                placeholder="20"
+                                maxLength={2}
+                                value={
+                                  rMembers[idx].customDigits ||
+                                  (rMembers[idx].batch?.startsWith("2K")
+                                    ? rMembers[idx].batch.slice(2)
+                                    : "")
+                                }
+                                onChange={(e) => {
+                                  const digits = e.target.value.replace(/\D/g, "");
+                                  setRMembers((prev) =>
+                                    prev.map((m, i) =>
+                                      i === idx
+                                        ? {
+                                            ...m,
+                                            customDigits: digits,
+                                            batch: digits ? `2K${digits}` : "",
+                                          }
+                                        : m
+                                    )
+                                  );
+                                }}
+                                style={{ padding: "6px 10px", fontSize: 12 }}
+                                required
+                              />
+                            </div>
+                          </div>
                         )}
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)" }}>No member details recorded.</p>
-                )}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="secondary" onClick={() => setTeamInfoModal(null)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* ════════════════════════════════════════════════════════════════════
-          INACTIVE DETAIL MODAL
-          ════════════════════════════════════════════════════════════════════ */}
-      {inactiveModal && (
-        <div className="modal-overlay" onClick={() => setInactiveModal(null)}>
-          <div className="modal-content" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Inactive Account Details</h2>
-              <button className="modal-close" onClick={() => setInactiveModal(null)}>×</button>
-            </div>
-            <div className="modal-body">
-              {[
-                ["Handle",               <a href={`https://codeforces.com/profile/${inactiveModal.handle}`} target="_blank" rel="noopener noreferrer" className="handle-name">{inactiveModal.handle}</a>],
-                ["Name",                 inactiveModal.name  || "Not provided"],
-                ["Batch",                normalizeBatch(inactiveModal.batch) || inactiveModal.batch || "Not provided"],
-                ["CF Max Rating",        <span className="stat-badge rating">{inactiveModal.maxRating || "—"}</span>],
-                ["Global Rank (CF Max)", <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--warning)" }}>#{cfMaxRankMap.get(String(inactiveModal.id)) ?? "?"}</span>],
-                ["Total Solved",         <span className="stat-badge solved">{inactiveModal.totalSolved}</span>],
-                ["Inactive Since",       inactiveModal.inactiveSince ? new Date(inactiveModal.inactiveSince).toLocaleDateString() : "Unknown"],
-                ["Status",               <span className="inactive-badge">💤 Inactive</span>],
-              ].map(([label, value]) => (
-                <div key={label} className="detail-row">
-                  <span className="detail-label">{label}</span>
-                  <span className="detail-value">{value}</span>
-                </div>
-              ))}
-            </div>
-            <div className="modal-footer">
-              <button className="secondary" onClick={() => setInactiveModal(null)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════
-          ACTIVITY MODAL
-          ════════════════════════════════════════════════════════════════════ */}
-      {activityModal && (
-        <div className="modal-overlay" onClick={() => setActivityModal(null)}>
-          <div className="modal-content" style={{ maxWidth: 540, maxHeight: "85vh" }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <h2>{activityModal.handle}</h2>
-                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Recent 5-day activity</p>
-              </div>
-              <button className="modal-close" onClick={() => setActivityModal(null)}>×</button>
-            </div>
-            <div className="modal-body">
-              {(!activityModal.recentStats || activityModal.recentStats.length === 0) ? (
-                <div className="empty-state" style={{ padding: "24px 0" }}><p>No recent activity data.</p></div>
-              ) : (
-                activityModal.recentStats.map((day) => (
-                  <div key={day.date} className="day-block">
-                    <div className="day-header">
-                      <span className="date-label">{day.date}</span>
-                      <div className="delta-block">
-                        <span className="delta-meta">{day.fromRating} → {day.toRating}</span>
-                        <span className={day.delta >= 0 ? "delta-positive" : "delta-negative"}>
-                          {day.delta >= 0 ? "+" : ""}{day.delta}
-                        </span>
-                      </div>
-                    </div>
-                    {day.problems.length === 0 ? (
-                      <p className="day-empty">No rated problems solved.</p>
-                    ) : (
-                      <ul className="problem-list">
-                        {day.problems.map((p, idx) => (
-                          <li key={`${p.contestId}-${p.index}-${idx}`}>
-                            <strong>{p.name}</strong> — ★ {p.rating}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {day.pendingCount > 0 && (
-                      <p className="day-empty" style={{ marginTop: 6, color: "var(--warning)" }}>
-                        ⏳ {day.pendingCount} pending unrated problem{day.pendingCount !== 1 ? "s" : ""}
-                      </p>
-                    )}
+                  <div className="std-field" style={{ marginTop: 8 }}>
+                    <label>Passkey *</label>
+                    <input
+                      type="password"
+                      placeholder="Enter submission passkey"
+                      value={rTeamPasskey}
+                      onChange={(e) => setRTeamPasskey(e.target.value)}
+                      required
+                    />
                   </div>
-                ))
+                </>
               )}
-            </div>
-            <div className="modal-footer">
-              <button className="secondary" onClick={() => setActivityModal(null)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* ════════════════════════════════════════════════════════════════════
-          MODAL: ON-DEMAND SYNC
-          ════════════════════════════════════════════════════════════════════ */}
-      {syncModalOpen && (
-        <div className="modal-overlay" onClick={() => setSyncModalOpen(false)}>
-          <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <h2>Sync Codeforces Solves</h2>
-                <p className="card-subtitle" style={{ margin: "2px 0 0" }}>
-                  Refresh your solves and practice rating immediately (1-hour cooldown per handle).
-                </p>
-              </div>
-              <button className="modal-close" onClick={() => setSyncModalOpen(false)}>×</button>
-            </div>
-            <form onSubmit={handleModalSyncSubmit}>
-              <div className="modal-body" style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
-                {syncFeedback && (
-                  <div className={`notice ${syncFeedback.ok ? "success" : "error"}`}>
-                    {syncFeedback.message}
-                  </div>
-                )}
-                <div>
-                  <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "var(--text-primary)" }}>
-                    Codeforces Handle
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Enter your CF handle (e.g. tourist)"
-                    value={syncInputHandle}
-                    onChange={(e) => setSyncInputHandle(e.target.value)}
-                    required
-                    autoFocus
-                  />
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="secondary" onClick={() => setSyncModalOpen(false)}>
+
+              <div className="std-modal-footer">
+                <button type="button" className="secondary sm" onClick={() => setRequestModal(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="primary" disabled={syncLoading || !syncInputHandle.trim()}>
-                  {syncLoading ? "Syncing with CF..." : "Sync Now"}
+                <button type="submit" className="primary sm" disabled={rLoading}>
+                  {rLoading ? "Submitting…" : "Submit Request"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-      {/* ════════════════════════════════════════════════════════════════════
-          MODAL: CONSIDERED CONTESTS (TEAM)
-          ════════════════════════════════════════════════════════════════════ */}
-      {contestsModalOpen && (
-        <div className="modal-overlay" onClick={() => setContestsModalOpen(false)}>
-          <div className="modal-content" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
+
+      {/* Practice Rating & Daily Activity History Modal */}
+      {historyTarget && (
+        <ActivityHistoryModal
+          participant={historyTarget}
+          onClose={() => setHistoryTarget(null)}
+          onSync={handleSyncHandle}
+          isSyncing={syncingHandle === historyTarget?.handle}
+        />
+      )}
+
+      {/* Team Details & Contests Modal */}
+      {teamHistoryTarget && (
+        <div className="std-modal-overlay" onClick={() => setTeamHistoryTarget(null)}>
+          <div className="std-modal-card" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div className="std-modal-header">
               <div>
-                <h2>Considered Contests</h2>
-                <p className="card-subtitle" style={{ margin: "2px 0 0" }}>
-                  Contests counted in team standings. Click any contest to open its standings on VJudge.
+                <h2>{teamHistoryTarget.teamName || teamHistoryTarget.name}</h2>
+                <p>
+                  VJudge Profile:{" "}
+                  <a
+                    href={`https://vjudge.net/user/${encodeURIComponent(
+                      teamHistoryTarget.teamVjudgeHandle ||
+                        teamHistoryTarget.aliases?.[0] ||
+                        teamHistoryTarget.teamName ||
+                        teamHistoryTarget.name
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "var(--primary-light)", textDecoration: "none" }}
+                  >
+                    {teamHistoryTarget.teamVjudgeHandle ||
+                      teamHistoryTarget.aliases?.[0] ||
+                      teamHistoryTarget.teamName ||
+                      teamHistoryTarget.name}{" "}
+                    ↗
+                  </a>
                 </p>
               </div>
-              <button className="modal-close" onClick={() => setContestsModalOpen(false)}>×</button>
+              <button className="std-modal-close" onClick={() => setTeamHistoryTarget(null)}>
+                ✕
+              </button>
             </div>
-            <div className="modal-body" style={{ maxHeight: "60vh", overflowY: "auto", padding: "16px 20px" }}>
-              {teamContests.filter((c) => c.enabled !== false).length === 0 ? (
-                <div className="empty-state"><p>No active contests counted yet.</p></div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {teamContests.filter((c) => c.enabled !== false).map((c, idx) => (
-                    <a
-                      key={c._id || c.contestId}
-                      href={`https://vjudge.net/contest/${c.contestId}#rank`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="contest-link-item"
+
+            <div
+              className="std-modal-body"
+              style={{
+                maxHeight: "65vh",
+                overflowY: "auto",
+                display: "flex",
+                flexDirection: "column",
+                gap: 16,
+              }}
+            >
+              {/* Stats Overview */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                <div
+                  style={{
+                    background: "var(--bg-surface)",
+                    padding: "12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border-subtle)",
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Team Rating
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 800,
+                      color: "var(--primary-light)",
+                      marginTop: 4,
+                    }}
+                  >
+                    {Math.round(teamHistoryTarget.rating || 1500)}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    background: "var(--bg-surface)",
+                    padding: "12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border-subtle)",
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Contests
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 800,
+                      color: "var(--text-primary)",
+                      marginTop: 4,
+                    }}
+                  >
+                    {teamHistoryTarget.contests ?? teamHistoryTarget.contestsHistory?.length ?? 0}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    background: "var(--bg-surface)",
+                    padding: "12px",
+                    borderRadius: "var(--radius-sm)",
+                    border: "1px solid var(--border-subtle)",
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Rank
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 20,
+                      fontWeight: 800,
+                      color: "#fbbf24",
+                      marginTop: 4,
+                    }}
+                  >
+                    #{teamHistoryTarget.rank || teamHistoryTarget.defaultRank || "—"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Members */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    marginBottom: 8,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Team Members
+                </h4>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {(teamHistoryTarget.members || []).map((m, i) => (
+                    <div
+                      key={i}
                       style={{
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "space-between",
-                        padding: "12px 16px",
-                        background: "var(--bg-subtle)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "var(--radius)",
-                        textDecoration: "none",
-                        transition: "all 0.15s ease",
-                        gap: 12,
+                        padding: "8px 12px",
+                        background: "var(--bg-surface)",
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "var(--radius-sm)",
+                        fontSize: 13,
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-                        <span style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: "var(--text-muted)",
-                          width: 22,
-                          textAlign: "right",
-                          flexShrink: 0
-                        }}>
-                          {idx + 1}.
-                        </span>
+                      <span style={{ fontWeight: 600 }}>{m.name || `Member #${i + 1}`}</span>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        {m.roll && <span className="std-chip-roll">{m.roll}</span>}
+                        {m.batch && <span className="std-chip-batch">{m.batch}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Contests History */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    marginBottom: 8,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Rated Contests History ({teamHistoryTarget.contestsHistory?.length || 0})
+                </h4>
+                {!teamHistoryTarget.contestsHistory ||
+                teamHistoryTarget.contestsHistory.length === 0 ? (
+                  <p style={{ fontSize: 13, color: "var(--text-muted)", fontStyle: "italic" }}>
+                    No recorded contest participations yet.
+                  </p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {teamHistoryTarget.contestsHistory.map((ch, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "10px 14px",
+                          background: "var(--bg-surface)",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: "var(--radius-sm)",
+                          gap: 12,
+                        }}
+                      >
                         <div style={{ minWidth: 0 }}>
-                          <div style={{
-                            fontWeight: 600,
-                            fontSize: 14,
-                            color: "var(--text-primary)",
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis"
-                          }}>
-                            {c.title || `Contest #${c.contestId}`}
-                          </div>
-                          <div style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
-                            Contest ID: {c.contestId}
+                          <a
+                            href={`https://vjudge.net/contest/${ch.contestId}#rank`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              fontWeight: 600,
+                              fontSize: 13,
+                              color: "var(--text-primary)",
+                              textDecoration: "none",
+                            }}
+                          >
+                            {ch.contestTitle || `Contest #${ch.contestId}`} ↗
+                          </a>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                            {ch.rankDisplay ? `Rank: ${ch.rankDisplay}` : `Rank #${ch.rank || "—"}`} •
+                            Solved: {ch.solved ?? 0}
                           </div>
                         </div>
+                        {ch.penalty !== undefined && (
+                          <div
+                            style={{
+                              textAlign: "right",
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 12,
+                              color: "var(--text-muted)",
+                            }}
+                          >
+                            Penalty: {ch.penalty}
+                          </div>
+                        )}
                       </div>
-                      <span style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: "var(--primary)",
-                        background: "rgba(37, 99, 235, 0.08)",
-                        padding: "4px 10px",
-                        borderRadius: 6,
-                        flexShrink: 0
-                      }}>
-                        View Standings ↗
-                      </span>
-                    </a>
-                  ))}
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="std-modal-footer">
+              <button className="secondary sm" onClick={() => setTeamHistoryTarget(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Considered / Counted Contests Modal */}
+      {contestsModalOpen && (
+        <div className="std-modal-overlay" onClick={() => setContestsModalOpen(false)}>
+          <div className="std-modal-card" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div className="std-modal-header">
+              <div>
+                <h2>Counted Team Contests</h2>
+                <p>Contests included in official team Elo calculation</p>
+              </div>
+              <button className="std-modal-close" onClick={() => setContestsModalOpen(false)}>
+                ✕
+              </button>
+            </div>
+
+            <div className="std-modal-body" style={{ maxHeight: "60vh", overflowY: "auto", padding: "16px 20px" }}>
+              {teamContests.filter((c) => c.enabled !== false).length === 0 ? (
+                <div className="std-empty-state">
+                  <p>No active contests counted yet.</p>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {teamContests
+                    .filter((c) => c.enabled !== false)
+                    .map((c, idx) => (
+                      <a
+                        key={c._id || c.contestId}
+                        href={`https://vjudge.net/contest/${c.contestId}#rank`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "12px 14px",
+                          background: "var(--bg-surface)",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: "var(--radius-sm)",
+                          textDecoration: "none",
+                          gap: 12,
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                          <span
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 12,
+                              fontWeight: 800,
+                              color: "var(--text-muted)",
+                              width: 22,
+                              textAlign: "right",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {idx + 1}.
+                          </span>
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontWeight: 700,
+                                fontSize: 13,
+                                color: "var(--text-primary)",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {c.title || `Contest #${c.contestId}`}
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                              ID: #{c.contestId} • Participants: {c.ranklist?.length || Object.keys(c.participants || {}).length || "—"}
+                            </div>
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: "var(--primary-light)",
+                            background: "rgba(99, 102, 241, 0.12)",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            flexShrink: 0,
+                          }}
+                        >
+                          View Standings ↗
+                        </span>
+                      </a>
+                    ))}
                 </div>
               )}
             </div>
-            <div className="modal-footer">
-              <button className="secondary" onClick={() => setContestsModalOpen(false)}>Close</button>
+
+            <div className="std-modal-footer">
+              <button className="secondary sm" onClick={() => setContestsModalOpen(false)}>
+                Close
+              </button>
             </div>
           </div>
         </div>
       )}
     </div>
   );
-};
-
-export default Standings;
+}

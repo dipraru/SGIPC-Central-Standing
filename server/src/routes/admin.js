@@ -247,6 +247,8 @@ router.post("/handles/:id/refresh", authRequired, async (req, res) => {
   }
 });
 
+const escapeRegex = (value = "") => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 router.get("/requests", authRequired, async (req, res) => {
   const status = req.query.status;
   const filter = status ? { status } : {};
@@ -255,96 +257,142 @@ router.get("/requests", authRequired, async (req, res) => {
 });
 
 router.post("/requests/:id/approve", authRequired, async (req, res) => {
-  const request = await Request.findById(req.params.id);
-  if (!request) {
-    return res.status(404).json({ message: "Request not found" });
-  }
-  if (request.status !== "pending") {
-    return res.status(400).json({ message: "Request already processed" });
-  }
-
-  if (request.type === "handle") {
-    const existingHandle = await Handle.findOne({ handle: request.handle });
-    if (existingHandle) {
-      return res.status(400).json({ message: "Handle already exists" });
+  try {
+    const request = await Request.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ message: "Request not found" });
     }
-    const created = await Handle.create({
-      handle: request.handle,
-      name: request.name || "",
-      roll: request.roll || "",
-      batch: request.batch || "",
-    });
-    try {
-      await refreshHandleData(request.handle, { fullHistory: true, forceActive: true });
-    } catch (error) {
-      await Promise.all([
-        Handle.deleteOne({ handle: request.handle }),
-        DailySolved.deleteMany({ handle: request.handle }),
-        PendingProblem.deleteMany({ handle: request.handle }),
-        RatingHistory.deleteMany({ handle: request.handle }),
-        HandleMeta.deleteMany({ handle: request.handle }),
-      ]);
-      return res.status(502).json({ message: "Backfill failed. Nothing was saved." });
+    if (request.status !== "pending") {
+      return res.status(400).json({ message: "Request already processed" });
     }
-    request.status = "approved";
-    request.approvedAt = new Date();
-    await request.save();
-    return res.json({ message: "Request approved", handle: created });
-  }
 
-  if (request.type === "team") {
-    const aliases = (request.teamHandles || "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    const createdTeam = await VjudgeTeam.create({
-      name: request.teamName,
-      aliases,
-      members: request.teamMembers || [],
-    });
-    request.status = "approved";
-    request.approvedAt = new Date();
-    await request.save();
-    return res.json({ message: "Request approved", team: createdTeam });
-  }
-
-  if (request.type === "reactivation") {
-    const handleDoc = await Handle.findOne({ handle: request.handle });
-    if (!handleDoc) {
-      return res.status(404).json({ message: "Handle not found" });
+    if (request.type === "handle") {
+      const existingHandle = await Handle.findOne({
+        handle: { $regex: `^${escapeRegex(request.handle)}$`, $options: "i" },
+      });
+      if (existingHandle) {
+        return res.status(400).json({ message: `Handle "${request.handle}" already exists in standings.` });
+      }
+      if (request.roll) {
+        const existingRoll = await Handle.findOne({
+          roll: { $regex: `^${escapeRegex(request.roll)}$`, $options: "i" },
+        });
+        if (existingRoll) {
+          return res.status(400).json({
+            message: `Roll "${request.roll}" is already registered to handle "${existingRoll.handle}".`,
+          });
+        }
+      }
+      const created = await Handle.create({
+        handle: request.handle,
+        name: request.name || "",
+        roll: request.roll || "",
+        batch: request.batch || "",
+      });
+      try {
+        await refreshHandleData(request.handle, { fullHistory: true, forceActive: true });
+      } catch (error) {
+        await Promise.all([
+          Handle.deleteOne({ handle: request.handle }),
+          DailySolved.deleteMany({ handle: request.handle }),
+          PendingProblem.deleteMany({ handle: request.handle }),
+          RatingHistory.deleteMany({ handle: request.handle }),
+          HandleMeta.deleteMany({ handle: request.handle }),
+        ]);
+        return res.status(502).json({ message: "Backfill failed. Nothing was saved." });
+      }
+      request.status = "approved";
+      request.approvedAt = new Date();
+      await request.save();
+      return res.json({ message: "Request approved", handle: created });
     }
-    // Re-activate the handle so it gets included in standings
-    await Handle.updateOne(
-      { handle: request.handle },
-      { isInactive: false, inactiveSince: null }
-    );
-    // Immediately backfill data so the handle shows up in standings right away
-    try {
-      await refreshHandleData(request.handle, { fullHistory: true, forceActive: true });
-    } catch (error) {
-      console.error(`Reactivation backfill failed for ${request.handle}:`, error.message);
-    }
-    request.status = "approved";
-    request.approvedAt = new Date();
-    await request.save();
-    return res.json({ message: "Reactivation approved", handle: request.handle });
-  }
 
-  return res.status(400).json({ message: "Unsupported request type" });
+    if (request.type === "team") {
+      const existingTeam = await VjudgeTeam.findOne({
+        name: { $regex: `^${escapeRegex(request.teamName)}$`, $options: "i" },
+      });
+      if (existingTeam) {
+        return res.status(400).json({
+          message: `Team "${request.teamName}" already exists in database. Please reject this duplicate request.`,
+        });
+      }
+
+      const aliases = (request.teamHandles || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const createdTeam = await VjudgeTeam.create({
+        name: request.teamName,
+        aliases,
+        members: request.teamMembers || [],
+      });
+      request.status = "approved";
+      request.approvedAt = new Date();
+      await request.save();
+      return res.json({ message: "Request approved", team: createdTeam });
+    }
+
+    if (request.type === "reactivation") {
+      const handleDoc = await Handle.findOne({
+        handle: { $regex: `^${escapeRegex(request.handle)}$`, $options: "i" },
+      });
+      if (!handleDoc) {
+        return res.status(404).json({ message: "Handle not found" });
+      }
+      // Re-activate the handle so it gets included in standings
+      await Handle.updateOne(
+        { _id: handleDoc._id },
+        { isInactive: false, inactiveSince: null }
+      );
+      // Immediately backfill data so the handle shows up in standings right away
+      try {
+        await refreshHandleData(request.handle, { fullHistory: true, forceActive: true });
+      } catch (error) {
+        console.error(`Reactivation backfill failed for ${request.handle}:`, error.message);
+      }
+      request.status = "approved";
+      request.approvedAt = new Date();
+      await request.save();
+      return res.json({ message: "Reactivation approved", handle: request.handle });
+    }
+
+    return res.status(400).json({ message: "Unsupported request type" });
+  } catch (error) {
+    console.error("Approve request error:", error);
+    return res.status(400).json({ message: error.message || "Failed to approve request" });
+  }
 });
 
 router.post("/requests/:id/reject", authRequired, async (req, res) => {
-  const request = await Request.findById(req.params.id);
-  if (!request) {
-    return res.status(404).json({ message: "Request not found" });
+  try {
+    const request = await Request.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ message: "Request not found" });
+    }
+    if (request.status !== "pending") {
+      return res.status(400).json({ message: "Request already processed" });
+    }
+    request.status = "rejected";
+    request.rejectedAt = new Date();
+    await request.save();
+    return res.json({ message: "Request rejected" });
+  } catch (error) {
+    console.error("Reject request error:", error);
+    return res.status(500).json({ message: error.message || "Failed to reject request" });
   }
-  if (request.status !== "pending") {
-    return res.status(400).json({ message: "Request already processed" });
+});
+
+router.delete("/requests/:id", authRequired, async (req, res) => {
+  try {
+    const deleted = await Request.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ message: "Request not found" });
+    }
+    return res.json({ message: "Request deleted successfully" });
+  } catch (error) {
+    console.error("Delete request error:", error);
+    return res.status(500).json({ message: error.message || "Failed to delete request" });
   }
-  request.status = "rejected";
-  request.rejectedAt = new Date();
-  await request.save();
-  return res.json({ message: "Request rejected" });
 });
 
 router.put("/passkey", authRequired, async (req, res) => {

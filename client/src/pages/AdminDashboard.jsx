@@ -21,6 +21,7 @@ import {
   getRequests,
   approveRequest,
   rejectRequest,
+  deleteRequest,
   updatePasskey,
   updateAdminCredentials,
   verifyAdminAuth,
@@ -394,7 +395,7 @@ export default function AdminDashboard() {
       await loadHandles();
       await loadTeams();
     } catch (err) {
-      alert("Approval failed: " + err.message);
+      alert("Approval failed: " + (err?.response?.data?.message || err.message));
     }
   };
 
@@ -403,7 +404,17 @@ export default function AdminDashboard() {
       await rejectRequest(id);
       await loadRequests();
     } catch (err) {
-      alert("Rejection failed: " + err.message);
+      alert("Rejection failed: " + (err?.response?.data?.message || err.message));
+    }
+  };
+
+  const handleDeleteReq = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this request record?")) return;
+    try {
+      await deleteRequest(id);
+      await loadRequests();
+    } catch (err) {
+      alert("Delete failed: " + (err?.response?.data?.message || err.message));
     }
   };
 
@@ -1188,6 +1199,11 @@ export default function AdminDashboard() {
                             </td>
                             <td>
                               <strong>{r.name || r.teamName || "—"}</strong>
+                              {r.type === "team" && r.teamMembers && r.teamMembers.length > 0 && (
+                                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                                  {r.teamMembers.map((m) => m.name || m.roll).join(" • ")}
+                                </div>
+                              )}
                             </td>
                             <td>
                               {r.handle && (
@@ -1200,18 +1216,35 @@ export default function AdminDashboard() {
                                   {r.handle} ↗
                                 </a>
                               )}
-                              {r.teamVjudgeHandle && <span>{r.teamVjudgeHandle}</span>}
+                              {(r.teamHandles || r.teamVjudgeHandle) && (
+                                <span style={{ fontSize: 13, fontFamily: "monospace" }}>
+                                  {r.teamHandles || r.teamVjudgeHandle}
+                                </span>
+                              )}
                             </td>
                             <td>
-                              <span className="std-roll-pill">{r.roll || "—"}</span>{" "}
-                              <span className="std-batch-text">{r.batch || ""}</span>
+                              {r.type === "team" && r.teamMembers && r.teamMembers.length > 0 ? (
+                                <div>
+                                  <div style={{ fontSize: 12 }}>
+                                    {r.teamMembers.map((m) => m.roll).filter(Boolean).join(", ") || "—"}
+                                  </div>
+                                  <div className="std-batch-text" style={{ fontSize: 11 }}>
+                                    {[...new Set(r.teamMembers.map((m) => m.batch).filter(Boolean))].join(", ")}
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <span className="std-roll-pill">{r.roll || "—"}</span>{" "}
+                                  <span className="std-batch-text">{r.batch || ""}</span>
+                                </>
+                              )}
                             </td>
                             <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
                               {new Date(r.createdAt).toLocaleDateString()}
                             </td>
                             <td style={{ textAlign: "right" }}>
                               {isPending ? (
-                                <div style={{ display: "inline-flex", gap: 6 }}>
+                                <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                                   <button
                                     className="success xs"
                                     onClick={() => handleApproveReq(r._id)}
@@ -1224,13 +1257,31 @@ export default function AdminDashboard() {
                                   >
                                     Reject ✕
                                   </button>
+                                  <button
+                                    className="secondary xs"
+                                    onClick={() => handleDeleteReq(r._id)}
+                                    title="Delete request"
+                                  >
+                                    🗑️
+                                  </button>
                                 </div>
-                              ) : isApproved ? (
-                                <span className="adm-status-pill active">✓ Approved</span>
-                              ) : isRejected ? (
-                                <span className="adm-status-pill inactive">✕ Rejected</span>
                               ) : (
-                                <span className="std-batch-pill">{r.status}</span>
+                                <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
+                                  {isApproved ? (
+                                    <span className="adm-status-pill active">✓ Approved</span>
+                                  ) : isRejected ? (
+                                    <span className="adm-status-pill inactive">✕ Rejected</span>
+                                  ) : (
+                                    <span className="std-batch-pill">{r.status}</span>
+                                  )}
+                                  <button
+                                    className="secondary xs"
+                                    onClick={() => handleDeleteReq(r._id)}
+                                    title="Delete request"
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
                               )}
                             </td>
                           </tr>

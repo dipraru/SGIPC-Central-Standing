@@ -33,6 +33,9 @@ router.post("/request/handle", async (req, res) => {
   }
 
   const normalizedHandle = handle.trim();
+  const normalizedRoll = roll.trim();
+
+  // Guard: Handle already in standings
   const existingHandle = await Handle.findOne({
     handle: { $regex: `^${escapeRegex(normalizedHandle)}$`, $options: "i" },
   });
@@ -40,6 +43,7 @@ router.post("/request/handle", async (req, res) => {
     return res.status(400).json({ message: "Handle already exists in standings" });
   }
 
+  // Guard: Handle pending in requests
   const pendingHandle = await Request.findOne({
     type: "handle",
     status: "pending",
@@ -47,6 +51,28 @@ router.post("/request/handle", async (req, res) => {
   });
   if (pendingHandle) {
     return res.status(400).json({ message: "Handle is already pending approval" });
+  }
+
+  // Guard: Roll already in standings
+  const existingRoll = await Handle.findOne({
+    roll: { $regex: `^${escapeRegex(normalizedRoll)}$`, $options: "i" },
+  });
+  if (existingRoll) {
+    return res.status(400).json({
+      message: `Roll "${normalizedRoll}" is already registered in standings (handle: ${existingRoll.handle})`,
+    });
+  }
+
+  // Guard: Roll pending in requests
+  const pendingRoll = await Request.findOne({
+    type: "handle",
+    status: "pending",
+    roll: { $regex: `^${escapeRegex(normalizedRoll)}$`, $options: "i" },
+  });
+  if (pendingRoll) {
+    return res.status(400).json({
+      message: `A request for roll "${normalizedRoll}" is already pending approval`,
+    });
   }
 
   const isValid = await verifyPasskey(passkey);
@@ -64,7 +90,7 @@ router.post("/request/handle", async (req, res) => {
     type: "handle",
     handle: normalizedHandle,
     name: name.trim(),
-    roll: roll.trim(),
+    roll: normalizedRoll,
     batch: batch.trim(),
     status: "pending",
   });
@@ -76,8 +102,9 @@ router.post("/request/handle", async (req, res) => {
 router.post("/request/team", async (req, res) => {
   const { teamName, teamVjudgeHandle, members, passkey } = req.body;
 
+  const normalizedTeamName = (teamName || "").trim();
   const vjHandle = (teamVjudgeHandle || "").trim();
-  if (!teamName || !vjHandle || !passkey) {
+  if (!normalizedTeamName || !vjHandle || !passkey) {
     return res.status(400).json({ message: "Team name, VJudge handle, and passkey are required" });
   }
 
@@ -94,6 +121,85 @@ router.post("/request/team", async (req, res) => {
     }
   }
 
+  // Guard: Internal distinct rolls within this team
+  const rolls = members.map((m) => m.roll.trim());
+  const lowerRolls = rolls.map((r) => r.toLowerCase());
+  if (new Set(lowerRolls).size !== 3) {
+    return res.status(400).json({ message: "Team members must have distinct roll numbers." });
+  }
+
+  // Guard: Team name already in VjudgeTeam
+  const existingTeam = await VjudgeTeam.findOne({
+    name: { $regex: `^${escapeRegex(normalizedTeamName)}$`, $options: "i" },
+  });
+  if (existingTeam) {
+    return res.status(400).json({ message: `Team name "${normalizedTeamName}" already exists in team standings.` });
+  }
+
+  // Guard: Team name already pending in Request
+  const pendingTeam = await Request.findOne({
+    type: "team",
+    status: "pending",
+    teamName: { $regex: `^${escapeRegex(normalizedTeamName)}$`, $options: "i" },
+  });
+  if (pendingTeam) {
+    return res.status(400).json({ message: `A team request for "${normalizedTeamName}" is already pending approval.` });
+  }
+
+  // Guard: Team VJudge handle already in VjudgeTeam (name or aliases)
+  const existingVj = await VjudgeTeam.findOne({
+    $or: [
+      { name: { $regex: `^${escapeRegex(vjHandle)}$`, $options: "i" } },
+      { aliases: { $regex: `^${escapeRegex(vjHandle)}$`, $options: "i" } },
+    ],
+  });
+  if (existingVj) {
+    return res.status(400).json({
+      message: `VJudge handle "${vjHandle}" is already linked to team "${existingVj.name}".`,
+    });
+  }
+
+  // Guard: Team VJudge handle already pending in Request
+  const pendingVj = await Request.findOne({
+    type: "team",
+    status: "pending",
+    teamHandles: { $regex: `^${escapeRegex(vjHandle)}$`, $options: "i" },
+  });
+  if (pendingVj) {
+    return res.status(400).json({
+      message: `A team request with VJudge handle "${vjHandle}" is already pending approval.`,
+    });
+  }
+
+  // Guard: Any member roll already registered in an existing team
+  const rollRegexes = rolls.map((r) => new RegExp(`^${escapeRegex(r)}$`, "i"));
+  const existingMemberTeam = await VjudgeTeam.findOne({
+    "members.roll": { $in: rollRegexes },
+  });
+  if (existingMemberTeam) {
+    const conflict = existingMemberTeam.members.find((m) =>
+      rolls.some((r) => r.toLowerCase() === (m.roll || "").toLowerCase())
+    );
+    return res.status(400).json({
+      message: `Roll "${conflict?.roll || "number"}" is already a member of team "${existingMemberTeam.name}".`,
+    });
+  }
+
+  // Guard: Any member roll already pending in another team request
+  const pendingMemberRequest = await Request.findOne({
+    type: "team",
+    status: "pending",
+    "teamMembers.roll": { $in: rollRegexes },
+  });
+  if (pendingMemberRequest) {
+    const conflictRoll = rolls.find((r) =>
+      pendingMemberRequest.teamMembers.some((m) => (m.roll || "").toLowerCase() === r.toLowerCase())
+    );
+    return res.status(400).json({
+      message: `A team request including roll "${conflictRoll}" is already pending approval (team: "${pendingMemberRequest.teamName}").`,
+    });
+  }
+
   const isValid = await verifyPasskey(passkey);
   if (!isValid) {
     return res.status(401).json({ message: "Invalid passkey" });
@@ -101,7 +207,7 @@ router.post("/request/team", async (req, res) => {
 
   const created = await Request.create({
     type: "team",
-    teamName: teamName.trim(),
+    teamName: normalizedTeamName,
     teamHandles: vjHandle,
     teamMembers: members.map((m) => ({
       handle: (m.handle || "").trim(),

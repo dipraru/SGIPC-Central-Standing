@@ -192,6 +192,11 @@ export const rejectRequest = async (id) => {
   return data;
 };
 
+export const deleteRequest = async (id) => {
+  const { data } = await api.delete(`/admin/requests/${id}`);
+  return data;
+};
+
 export const updatePasskey = async (payload) => {
   const { data } = await api.put("/admin/passkey", payload);
   return data;

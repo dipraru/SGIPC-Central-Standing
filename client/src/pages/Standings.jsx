@@ -415,6 +415,22 @@ export default function Standings() {
       if (!BATCH_REGEX.test(effectiveBatch)) {
         return setRError("Batch must be in the format 2K** (e.g. 2K22).");
       }
+
+      // Client-side guard: handle already exists
+      const hLower = rHandle.trim().toLowerCase();
+      const existingH = (standings || []).find((s) => (s.handle || "").toLowerCase() === hLower)
+        || (inactiveList || []).find((s) => (s.handle || "").toLowerCase() === hLower);
+      if (existingH) {
+        return setRError(`Handle "${rHandle.trim()}" already exists in standings.`);
+      }
+
+      // Client-side guard: roll already exists in standings
+      const rLower = rRoll.trim().toLowerCase();
+      const existingR = (standings || []).find((s) => (s.roll || "").trim().toLowerCase() === rLower)
+        || (inactiveList || []).find((s) => (s.roll || "").trim().toLowerCase() === rLower);
+      if (existingR) {
+        return setRError(`Roll "${rRoll.trim()}" is already registered in standings (handle: ${existingR.handle}).`);
+      }
     } else {
       if (!rTeamName.trim() || !rTeamVjudgeHandle.trim() || !rTeamPasskey.trim()) {
         return setRError("Team name, VJudge handle, and passkey are required.");
@@ -431,6 +447,41 @@ export default function Standings() {
         }
         if (!BATCH_REGEX.test(mBatch)) {
           return setRError(`Batch for Member ${i + 1} must be in the format 2K** (e.g. 2K22).`);
+        }
+      }
+
+      // Client-side guard: distinct rolls within the team
+      const memberRolls = rMembers.map((m) => m.roll.trim().toLowerCase());
+      if (new Set(memberRolls).size !== 3) {
+        return setRError("All 3 team members must have distinct roll numbers.");
+      }
+
+      // Client-side guard: team name already in teamStandings
+      const tNameLower = rTeamName.trim().toLowerCase();
+      const existingT = (teamStandings || []).find((t) => (t.name || "").trim().toLowerCase() === tNameLower);
+      if (existingT) {
+        return setRError(`Team "${rTeamName.trim()}" already exists in team standings.`);
+      }
+
+      // Client-side guard: team VJudge handle already in teamStandings
+      const vjLower = rTeamVjudgeHandle.trim().toLowerCase();
+      const existingVj = (teamStandings || []).find(
+        (t) =>
+          (t.name || "").trim().toLowerCase() === vjLower ||
+          (t.aliases || []).some((a) => (a || "").trim().toLowerCase() === vjLower)
+      );
+      if (existingVj) {
+        return setRError(`VJudge handle "${rTeamVjudgeHandle.trim()}" is already linked to team "${existingVj.name}".`);
+      }
+
+      // Client-side guard: any member roll already in another team
+      for (const m of rMembers) {
+        const mRollLower = m.roll.trim().toLowerCase();
+        const existingTeamWithRoll = (teamStandings || []).find((t) =>
+          (t.members || []).some((tm) => (tm.roll || "").trim().toLowerCase() === mRollLower)
+        );
+        if (existingTeamWithRoll) {
+          return setRError(`Roll "${m.roll.trim()}" is already a member of team "${existingTeamWithRoll.name}".`);
         }
       }
     }

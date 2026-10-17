@@ -22,31 +22,46 @@ const authRequired = (req, res, next) => {
   }
 };
 
+const escapeRegex = (value = "") => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 router.get("/vjudge/teams", authRequired, async (req, res) => {
   const teams = await VjudgeTeam.find().sort({ createdAt: -1 });
   return res.json(teams);
 });
 
 router.post("/vjudge/teams", authRequired, async (req, res) => {
-  const teamNameRaw = req.body.name || req.body.teamName;
-  if (!teamNameRaw || !String(teamNameRaw).trim()) {
-    return res.status(400).json({ message: "Team name is required" });
+  try {
+    const teamNameRaw = req.body.name || req.body.teamName;
+    if (!teamNameRaw || !String(teamNameRaw).trim()) {
+      return res.status(400).json({ message: "Team name is required" });
+    }
+    const normalized = String(teamNameRaw).trim();
+
+    const existing = await VjudgeTeam.findOne({
+      name: { $regex: `^${escapeRegex(normalized)}$`, $options: "i" },
+    });
+    if (existing) {
+      return res.status(400).json({ message: `Team "${normalized}" already exists.` });
+    }
+
+    const rawAliases = req.body.aliases || (req.body.teamVjudgeHandle ? [req.body.teamVjudgeHandle] : [normalized]);
+    const aliasList = Array.isArray(rawAliases)
+      ? rawAliases.map((a) => String(a).trim()).filter(Boolean)
+      : String(rawAliases || "").split(",").map((item) => item.trim()).filter(Boolean);
+    if (!aliasList.includes(normalized)) {
+      aliasList.unshift(normalized);
+    }
+    const members = Array.isArray(req.body.members) ? req.body.members : [];
+    const created = await VjudgeTeam.create({
+      name: normalized,
+      aliases: aliasList,
+      members,
+    });
+    return res.status(201).json(created);
+  } catch (err) {
+    console.error("Create team error:", err);
+    return res.status(400).json({ message: err.message || "Failed to create team" });
   }
-  const normalized = String(teamNameRaw).trim();
-  const rawAliases = req.body.aliases || (req.body.teamVjudgeHandle ? [req.body.teamVjudgeHandle] : [normalized]);
-  const aliasList = Array.isArray(rawAliases)
-    ? rawAliases.map((a) => String(a).trim()).filter(Boolean)
-    : String(rawAliases || "").split(",").map((item) => item.trim()).filter(Boolean);
-  if (!aliasList.includes(normalized)) {
-    aliasList.unshift(normalized);
-  }
-  const members = Array.isArray(req.body.members) ? req.body.members : [];
-  const created = await VjudgeTeam.create({
-    name: normalized,
-    aliases: aliasList,
-    members,
-  });
-  return res.status(201).json(created);
 });
 
 router.patch("/vjudge/teams/:id", authRequired, async (req, res) => {

@@ -623,7 +623,6 @@ export const BISCUIT_PRIOR_RATING = 1000;
 export const BISCUIT_PRIOR_CREDIT = 1;
 export const BISCUIT_TIME_DECAY_RATE = 0.2;
 export const BISCUIT_TIME_DECAY_PULSE_DAYS = 45;
-export const BISCUIT_WINDOW_DAYS = 45;
 
 export const calculateBiscuitPerformance = (rank, solved, maxSolved) => {
   if (!maxSolved || maxSolved <= 0 || !solved || solved <= 0) return 0;
@@ -638,7 +637,6 @@ export const calculateBiscuitWeight = (
   credit = 1,
   contestDate,
   latestDate,
-  windowDays = BISCUIT_WINDOW_DAYS,
   decayRate = BISCUIT_TIME_DECAY_RATE,
   pulseDays = BISCUIT_TIME_DECAY_PULSE_DAYS
 ) => {
@@ -646,10 +644,6 @@ export const calculateBiscuitWeight = (
   const dLatest = new Date(latestDate);
   const msDiff = Math.max(0, dLatest.getTime() - dContest.getTime());
   const daysDiff = msDiff / (1000 * 60 * 60 * 24);
-
-  if (windowDays && daysDiff > windowDays) {
-    return 0;
-  }
   const periods = daysDiff / (pulseDays || 45);
   return credit * Math.pow(1 - decayRate, periods);
 };
@@ -657,7 +651,8 @@ export const calculateBiscuitWeight = (
 export const calculateBiscuitRating = (
   contestEntries = [],
   asOfDate,
-  windowDays = BISCUIT_WINDOW_DAYS,
+  pulseDays = BISCUIT_TIME_DECAY_PULSE_DAYS,
+  decayRate = BISCUIT_TIME_DECAY_RATE,
   priorRating = BISCUIT_PRIOR_RATING,
   priorCredit = BISCUIT_PRIOR_CREDIT
 ) => {
@@ -674,7 +669,7 @@ export const calculateBiscuitRating = (
   for (const entry of contestEntries) {
     const credit = Number(entry.credit) || 1;
     totalCredit += credit;
-    const w = calculateBiscuitWeight(credit, entry.date, dAsOf, windowDays);
+    const w = calculateBiscuitWeight(credit, entry.date, dAsOf, decayRate, pulseDays);
     totalLeftWeight += w;
     weightedSquares += w * Math.pow(entry.perf, 2);
     totalContestWeight += w;
@@ -688,7 +683,8 @@ export const calculateBiscuitRating = (
 };
 
 export const buildBiscuitStandings = (contestPayloads = [], teamGroups = [], options = {}) => {
-  const windowDays = options.windowDays !== undefined ? options.windowDays : BISCUIT_WINDOW_DAYS;
+  const pulseDays = options.pulseDays !== undefined ? options.pulseDays : BISCUIT_TIME_DECAY_PULSE_DAYS;
+  const decayRate = options.decayRate !== undefined ? options.decayRate : BISCUIT_TIME_DECAY_RATE;
   const priorRating = options.priorRating !== undefined ? options.priorRating : BISCUIT_PRIOR_RATING;
   const priorCredit = options.priorCredit !== undefined ? options.priorCredit : BISCUIT_PRIOR_CREDIT;
 
@@ -789,7 +785,7 @@ export const buildBiscuitStandings = (contestPayloads = [], teamGroups = [], opt
           };
           record._activeEntries.push(entryObj);
           ratingAfter = Math.round(
-            calculateBiscuitRating(record._activeEntries, contestDate, windowDays, priorRating, priorCredit)
+            calculateBiscuitRating(record._activeEntries, contestDate, pulseDays, decayRate, priorRating, priorCredit)
           );
           delta = ratingAfter - prevRating;
           record.contests += 1;
@@ -818,7 +814,7 @@ export const buildBiscuitStandings = (contestPayloads = [], teamGroups = [], opt
       let finalRating = priorRating;
       if (record._activeEntries.length > 0) {
         finalRating = Math.round(
-          calculateBiscuitRating(record._activeEntries, latestContestDate, windowDays, priorRating, priorCredit)
+          calculateBiscuitRating(record._activeEntries, latestContestDate, pulseDays, decayRate, priorRating, priorCredit)
         );
       }
       return {

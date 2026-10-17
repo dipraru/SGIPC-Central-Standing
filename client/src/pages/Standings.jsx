@@ -200,6 +200,21 @@ export const SortIcon = ({ col, activeCol, dir }) => {
 
 const emptyMember = () => ({ handle: "", name: "", roll: "", batch: "", batchSelect: "", customDigits: "" });
 
+const getPageNumbers = (current, total) => {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  const pages = [];
+  if (current <= 4) {
+    pages.push(1, 2, 3, 4, 5, "...", total);
+  } else if (current >= total - 3) {
+    pages.push(1, "...", total - 4, total - 3, total - 2, total - 1, total);
+  } else {
+    pages.push(1, "...", current - 1, current, current + 1, "...", total);
+  }
+  return pages;
+};
+
 export default function Standings() {
   const [activeTab, setActiveTab] = useState("individual"); // 'individual' | 'team' | 'inactive'
   const [showInactive, setShowInactive] = useState(false);
@@ -259,6 +274,8 @@ export default function Standings() {
   const [teamHistoryTarget, setTeamHistoryTarget] = useState(null);
   const [teamContests, setTeamContests] = useState([]);
   const [contestsModalOpen, setContestsModalOpen] = useState(false);
+  const [teamPage, setTeamPage] = useState(1);
+  const TEAMS_PER_PAGE = 20;
 
   // Request Form States
   const [rHandle, setRHandle] = useState("");
@@ -596,6 +613,18 @@ export default function Standings() {
     }
     return list;
   }, [teamStandings, search, selectedBatches]);
+
+  // Reset teamPage when search or batch filter changes
+  useEffect(() => {
+    setTeamPage(1);
+  }, [search, selectedBatches]);
+
+  const totalTeamPages = Math.ceil(filteredTeams.length / TEAMS_PER_PAGE);
+
+  const displayedTeams = useMemo(() => {
+    const start = (teamPage - 1) * TEAMS_PER_PAGE;
+    return filteredTeams.slice(start, start + TEAMS_PER_PAGE);
+  }, [filteredTeams, teamPage]);
 
   // Contests columns for team leaderboard sorted chronologically (newest first)
   const sortedContestColumns = useMemo(() => {
@@ -1090,8 +1119,9 @@ export default function Standings() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredTeams.map((team, idx) => {
-                        const displayRank = team.rank || team.defaultRank || idx + 1;
+                      {displayedTeams.map((team, idx) => {
+                        const globalIndex = (teamPage - 1) * TEAMS_PER_PAGE + idx;
+                        const displayRank = team.rank || team.defaultRank || globalIndex + 1;
                         const latestDelta = team.contestsHistory?.[0]?.delta;
                         const maxPerf = (team.contestsHistory || []).reduce(
                           (max, h) => Math.max(max, h.performance || 0),
@@ -1228,6 +1258,68 @@ export default function Standings() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* BCS Team Pagination Strip: only show if more than 20 teams */}
+                {totalTeamPages > 1 && (
+                  <div className="bcs-pagination-strip">
+                    <div className="bcs-pagination-info">
+                      Showing <strong>{(teamPage - 1) * TEAMS_PER_PAGE + 1}–{Math.min(teamPage * TEAMS_PER_PAGE, filteredTeams.length)}</strong> of{" "}
+                      <strong>{filteredTeams.length}</strong> teams
+                    </div>
+                    <div className="pagination-controls">
+                      <button
+                        type="button"
+                        className="page-btn"
+                        disabled={teamPage <= 1}
+                        onClick={() => setTeamPage(1)}
+                        title="First page"
+                      >
+                        «
+                      </button>
+                      <button
+                        type="button"
+                        className="page-btn"
+                        disabled={teamPage <= 1}
+                        onClick={() => setTeamPage((p) => Math.max(1, p - 1))}
+                        title="Previous page"
+                      >
+                        ‹
+                      </button>
+                      {getPageNumbers(teamPage, totalTeamPages).map((p, i) =>
+                        p === "..." ? (
+                          <span key={`dots-${i}`} className="page-ellipsis">…</span>
+                        ) : (
+                          <button
+                            type="button"
+                            key={p}
+                            className={`page-btn ${teamPage === p ? "active" : ""}`}
+                            onClick={() => setTeamPage(p)}
+                          >
+                            {p}
+                          </button>
+                        )
+                      )}
+                      <button
+                        type="button"
+                        className="page-btn"
+                        disabled={teamPage >= totalTeamPages}
+                        onClick={() => setTeamPage((p) => Math.min(totalTeamPages, p + 1))}
+                        title="Next page"
+                      >
+                        ›
+                      </button>
+                      <button
+                        type="button"
+                        className="page-btn"
+                        disabled={teamPage >= totalTeamPages}
+                        onClick={() => setTeamPage(totalTeamPages)}
+                        title="Last page"
+                      >
+                        »
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* BCS Rating Tiers Legend */}
                 <div className="bcs-tiers-legend">

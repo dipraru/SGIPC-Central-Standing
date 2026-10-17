@@ -3325,5 +3325,27 @@ button.success.xs:hover {
   opacity: 0.85;
 }
 
+/* BCS Team Standings Pagination */
+.bcs-pagination-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 12px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  gap: 12px;
+  flex-wrap: wrap;
+}
 
+.bcs-pagination-info {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
 
+.bcs-pagination-info strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}

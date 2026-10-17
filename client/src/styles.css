@@ -3011,4 +3011,319 @@ button.success.xs:hover {
   border-color: var(--border-focus);
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   BCS SLOTS SYSTEM UI (therealbcs.com/slots style)
+   ══════════════════════════════════════════════════════════════════ */
+.bcs-slots-card {
+  padding: 20px;
+}
+
+.bcs-slots-hero {
+  text-align: center;
+  padding: 8px 12px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.bcs-slots-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  gap: 12px;
+}
+
+.bcs-slots-title {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 0;
+  font-family: var(--font-heading);
+}
+
+.bcs-slots-counted-btn {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.bcs-slots-counted-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-medium);
+  color: var(--text-primary);
+}
+
+@media (max-width: 768px) {
+  .bcs-slots-title-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .bcs-slots-counted-btn {
+    position: static;
+    transform: none;
+  }
+}
+
+.bcs-slots-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 6px 0 10px;
+}
+
+.bcs-slots-guide {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+}
+
+.bcs-guide-item {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.bcs-guide-sep {
+  color: var(--text-dim);
+  user-select: none;
+}
+
+/* Slots Table Specifics */
+.bcs-slots-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.bcs-slots-table th {
+  padding: 12px 10px;
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  font-weight: 800;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border-subtle);
+}
+
+.bcs-contest-header {
+  transition: all 0.15s ease;
+  user-select: none;
+  cursor: pointer;
+}
+
+.bcs-contest-header:hover {
+  color: var(--accent);
+  background: rgba(56, 189, 248, 0.06);
+}
+
+.bcs-contest-code {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.bcs-slots-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+/* Column border after RATING */
+.bcs-slots-table .bcs-col-rating,
+.bcs-slots-table th.bcs-col-rating {
+  border-right: 2px solid var(--border-medium) !important;
+  text-align: center;
+}
+
+[data-theme="light"] .bcs-slots-table .bcs-col-rating,
+[data-theme="light"] .bcs-slots-table th.bcs-col-rating {
+  border-right: 2px solid #cbd5e1 !important;
+}
+
+@media (min-width: 640px) {
+  .bcs-slots-table .bcs-col-rank {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--bg-card);
+    width: 56px;
+    min-width: 56px;
+    max-width: 56px;
+  }
+  .bcs-slots-table .bcs-col-team {
+    position: sticky;
+    left: 56px;
+    z-index: 2;
+    background: var(--bg-card);
+    width: 220px;
+    min-width: 220px;
+    max-width: 220px;
+  }
+  .bcs-slots-table .bcs-col-rating {
+    position: sticky;
+    left: 276px;
+    z-index: 2;
+    background: var(--bg-card);
+    width: 90px;
+    min-width: 90px;
+    max-width: 90px;
+    border-right: 2px solid var(--border-medium) !important;
+    box-shadow: 4px 0 8px -3px rgba(0, 0, 0, 0.35);
+  }
+  .bcs-slots-table th.bcs-col-rank {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    background: var(--bg-card);
+    width: 56px;
+    min-width: 56px;
+    max-width: 56px;
+  }
+  .bcs-slots-table th.bcs-col-team {
+    position: sticky;
+    left: 56px;
+    z-index: 4;
+    background: var(--bg-card);
+    width: 220px;
+    min-width: 220px;
+    max-width: 220px;
+  }
+  .bcs-slots-table th.bcs-col-rating {
+    position: sticky;
+    left: 276px;
+    z-index: 4;
+    background: var(--bg-card);
+    width: 90px;
+    min-width: 90px;
+    max-width: 90px;
+    border-right: 2px solid var(--border-medium) !important;
+    box-shadow: 4px 0 8px -3px rgba(0, 0, 0, 0.35);
+  }
+  [data-theme="light"] .bcs-slots-table .bcs-col-rating,
+  [data-theme="light"] .bcs-slots-table th.bcs-col-rating {
+    border-right: 2px solid #cbd5e1 !important;
+    box-shadow: 4px 0 8px -3px rgba(0, 0, 0, 0.1);
+  }
+  .std-row:hover .bcs-col-rank,
+  .std-row:hover .bcs-col-team,
+  .std-row:hover .bcs-col-rating {
+    background: var(--bg-card-hover) !important;
+  }
+}
+
+.bcs-medal-icon {
+  font-size: 18px;
+  line-height: 1;
+  display: inline-block;
+  transform: translateY(-1px);
+}
+
+.bcs-plain-rank {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.bcs-team-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+}
+
+.bcs-rating-val {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.bcs-delta-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Rating Tiers Legend at bottom */
+.bcs-tiers-legend {
+  margin-top: 18px;
+  padding: 16px 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bcs-tiers-legend-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.bcs-tiers-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bcs-tier-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--bg-card);
+  border: 1px solid;
+  transition: transform 0.15s ease;
+}
+
+.bcs-tier-chip:hover {
+  transform: translateY(-1px);
+}
+
+.bcs-tier-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.bcs-tier-range {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  opacity: 0.85;
+}
+
+
 

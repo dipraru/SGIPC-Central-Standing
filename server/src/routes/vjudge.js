@@ -3,6 +3,7 @@ import { VjudgeContest } from "../models/VjudgeContest.js";
 import { VjudgeTeam } from "../models/VjudgeTeam.js";
 import { VjudgeConfig } from "../models/VjudgeConfig.js";
 import {
+  buildBiscuitStandings,
   buildEloStandings,
   buildTeamGroups,
   fetchContestRank,
@@ -23,6 +24,7 @@ router.get("/vjudge/standings", async (req, res) => {
       standings: [],
       standingsByType: {
         normal: [],
+        biscuit: [],
         "gain-only": [],
         "zero-participation": [],
       },
@@ -42,7 +44,12 @@ router.get("/vjudge/standings", async (req, res) => {
             try {
               const fresh = await syncContestRank(VjudgeContest, contest);
               if (fresh && !fresh.error && fresh.ranklist) {
-                return { ...fresh, contestId: contest.contestId };
+                return {
+                  ...fresh,
+                  contestId: contest.contestId,
+                  beginTime: fresh.beginTime || contest.beginTime || contest.createdAt,
+                  createdAt: contest.createdAt,
+                };
               }
             } catch (e) {}
           }
@@ -52,6 +59,8 @@ router.get("/vjudge/standings", async (req, res) => {
             title: contest.title || `Contest #${contest.contestId}`,
             ranklist: contest.ranklist,
             participants: contest.participants || {},
+            beginTime: contest.beginTime || contest.createdAt,
+            createdAt: contest.createdAt,
           };
         }
 
@@ -60,7 +69,12 @@ router.get("/vjudge/standings", async (req, res) => {
           errors.push({ contestId: contest.contestId, message: data.error });
           return null;
         }
-        return { ...data, contestId: contest.contestId };
+        return {
+          ...data,
+          contestId: contest.contestId,
+          beginTime: data.beginTime || contest.beginTime || contest.createdAt,
+          createdAt: contest.createdAt,
+        };
       } catch (error) {
         if (contest.ranklist && Array.isArray(contest.ranklist) && contest.ranklist.length > 0) {
           return {
@@ -68,6 +82,8 @@ router.get("/vjudge/standings", async (req, res) => {
             title: contest.title || `Contest #${contest.contestId}`,
             ranklist: contest.ranklist,
             participants: contest.participants || {},
+            beginTime: contest.beginTime || contest.createdAt,
+            createdAt: contest.createdAt,
           };
         }
         return null;
@@ -77,7 +93,12 @@ router.get("/vjudge/standings", async (req, res) => {
 
   const validContests = contestPayloads
     .filter(Boolean)
-    .sort((a, b) => Number(a.contestId) - Number(b.contestId));
+    .sort((a, b) => {
+      const timeA = new Date(a.beginTime || a.createdAt || 0).getTime();
+      const timeB = new Date(b.beginTime || b.createdAt || 0).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      return Number(a.contestId) - Number(b.contestId);
+    });
   const teamGroups = buildTeamGroups(teams);
   const teamById = new Map(teams.map((t) => [t._id.toString(), t]));
 
@@ -91,26 +112,25 @@ router.get("/vjudge/standings", async (req, res) => {
       };
     });
 
-  const normalStandings = enrich(buildEloStandings(validContests, teamGroups, "normal"));
-  const gainOnlyStandings = enrich(buildEloStandings(validContests, teamGroups, "gain-only"));
-  const zeroPartStandings = enrich(buildEloStandings(validContests, teamGroups, "zero-participation"));
+  // Calculate ratings using the Biscuit Rating system (45-day window)
+  const biscuitStandings = enrich(buildBiscuitStandings(validContests, teamGroups));
 
   const requestedType = req.query.type || req.query.mode || "normal";
   const activeStandings =
-    requestedType === "gain-only"
-      ? gainOnlyStandings
-      : requestedType === "zero-participation"
-      ? zeroPartStandings
-      : normalStandings;
+    requestedType === "elo"
+      ? enrich(buildEloStandings(validContests, teamGroups, "normal"))
+      : biscuitStandings;
 
   return res.json({
     contests,
     teams,
     standings: activeStandings,
     standingsByType: {
-      normal: normalStandings,
-      "gain-only": gainOnlyStandings,
-      "zero-participation": zeroPartStandings,
+      normal: biscuitStandings,
+      biscuit: biscuitStandings,
+      "gain-only": biscuitStandings,
+      "zero-participation": biscuitStandings,
+      elo: enrich(buildEloStandings(validContests, teamGroups, "normal")),
     },
     errors,
   });

@@ -7,6 +7,8 @@ const tfcContestSchema = new mongoose.Schema(
     enabled: { type: Boolean, default: true },
     ranklist: { type: [mongoose.Schema.Types.Mixed], default: null },
     participants: { type: mongoose.Schema.Types.Mixed, default: null },
+    beginTime: { type: Date, default: null },
+    length: { type: Number, default: null },
     lastFetchedAt: { type: Date, default: null },
     fetchStatus: { type: String, default: "idle" },
     fetchError: { type: String, default: null },

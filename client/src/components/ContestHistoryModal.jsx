@@ -79,10 +79,11 @@ export const ContestHistoryModal = ({ isOpen, onClose, contestant }) => {
               <table className="table" style={{ width: "100%", fontSize: 13 }}>
                 <thead>
                   <tr>
-                    <th style={{ minWidth: 220 }}>Name of Contest</th>
-                    <th style={{ width: 100, textAlign: "center" }}>Solved</th>
-                    <th style={{ width: 110, textAlign: "right" }}>Penalty</th>
-                    <th style={{ width: 120, textAlign: "center" }}>Rank (Real/Total)</th>
+                    <th style={{ minWidth: 200 }}>Name of Contest</th>
+                    <th style={{ width: 80, textAlign: "center" }}>Solved</th>
+                    <th style={{ width: 90, textAlign: "right" }}>Penalty</th>
+                    <th style={{ width: 110, textAlign: "center" }}>Rank (Real/Total)</th>
+                    <th style={{ width: 90, textAlign: "center" }}>Rating Δ</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -149,6 +150,43 @@ export const ContestHistoryModal = ({ isOpen, onClose, contestant }) => {
                           >
                             {c.rankDisplay || `${c.rank}/${c.totalParticipants}`}
                           </span>
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          {c.delta !== undefined && c.delta !== null ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: 6,
+                                fontFamily: "var(--font-mono)",
+                                fontWeight: 800,
+                                fontSize: 12,
+                                background:
+                                  c.delta > 0
+                                    ? "rgba(16, 185, 129, 0.14)"
+                                    : c.delta < 0
+                                    ? "rgba(239, 68, 68, 0.14)"
+                                    : "var(--bg-subtle, rgba(148, 163, 184, 0.12))",
+                                color:
+                                  c.delta > 0
+                                    ? "#10b981"
+                                    : c.delta < 0
+                                    ? "#ef4444"
+                                    : "var(--text-muted)",
+                                border: `1px solid ${
+                                  c.delta > 0
+                                    ? "rgba(16, 185, 129, 0.3)"
+                                    : c.delta < 0
+                                    ? "rgba(239, 68, 68, 0.3)"
+                                    : "var(--border)"
+                                }`,
+                              }}
+                            >
+                              {c.delta > 0 ? `+${c.delta}` : c.delta}
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-muted)", fontSize: 11 }}>—</span>
+                          )}
                         </td>
                       </tr>
                     );

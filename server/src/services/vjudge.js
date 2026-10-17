@@ -350,6 +350,8 @@ export const fetchContestRank = async (contestId) => {
       ranklist,
       participants: data.participants || {},
       title: data.title || "",
+      beginTime: data.begin ? new Date(data.begin) : null,
+      length: data.length || null,
     };
   } catch (err) {
     const message = err.response?.status
@@ -379,6 +381,7 @@ export const syncContestRank = async (Model, contestDocOrId) => {
         title: doc.title || "",
         ranklist: doc.ranklist,
         participants: doc.participants || {},
+        beginTime: doc.beginTime || doc.createdAt,
         fromCache: true,
         warning: data.error,
       };
@@ -393,6 +396,12 @@ export const syncContestRank = async (Model, contestDocOrId) => {
     fetchStatus: "success",
     fetchError: null,
   };
+  if (data.beginTime) {
+    updateFields.beginTime = data.beginTime;
+  }
+  if (data.length) {
+    updateFields.length = data.length;
+  }
   if (data.title && (!doc.title || doc.title.startsWith("TFC Contest #") || doc.title !== data.title)) {
     updateFields.title = data.title;
   }
@@ -403,6 +412,7 @@ export const syncContestRank = async (Model, contestDocOrId) => {
     title: updated.title || data.title,
     ranklist: data.ranklist,
     participants: data.participants || {},
+    beginTime: updated.beginTime || data.beginTime,
     fromCache: false,
   };
 };
@@ -603,3 +613,237 @@ export const buildTeamGroups = (teams) =>
 
 export const normalizeContestIds = (contests) =>
   contests.map((contest) => contest.contestId.toString());
+
+// ── Biscuit Rating Implementation (45-Day Window) ───────────────────────────
+// Reference: https://github.com/ir-rafio/Biscuit-Rating
+export const BISCUIT_MAX_TEAM_RATING = 4000;
+export const BISCUIT_RANK_DECAY_RATE = 0.02;
+export const BISCUIT_SOLVED_EXPONENT = 0.5;
+export const BISCUIT_PRIOR_RATING = 1000;
+export const BISCUIT_PRIOR_CREDIT = 1;
+export const BISCUIT_TIME_DECAY_RATE = 0.2;
+export const BISCUIT_TIME_DECAY_PULSE_DAYS = 45;
+export const BISCUIT_WINDOW_DAYS = 45;
+
+export const calculateBiscuitPerformance = (rank, solved, maxSolved) => {
+  if (!maxSolved || maxSolved <= 0 || !solved || solved <= 0) return 0;
+  const rankNum = Number(rank);
+  if (!Number.isFinite(rankNum) || rankNum < 1) return 0;
+  const rankFactor = Math.pow(1 - BISCUIT_RANK_DECAY_RATE, rankNum - 1);
+  const solvedFactor = Math.pow(Number(solved) / maxSolved, BISCUIT_SOLVED_EXPONENT);
+  return BISCUIT_MAX_TEAM_RATING * rankFactor * solvedFactor;
+};
+
+export const calculateBiscuitWeight = (
+  credit = 1,
+  contestDate,
+  latestDate,
+  windowDays = BISCUIT_WINDOW_DAYS,
+  decayRate = BISCUIT_TIME_DECAY_RATE,
+  pulseDays = BISCUIT_TIME_DECAY_PULSE_DAYS
+) => {
+  const dContest = new Date(contestDate);
+  const dLatest = new Date(latestDate);
+  const msDiff = Math.max(0, dLatest.getTime() - dContest.getTime());
+  const daysDiff = msDiff / (1000 * 60 * 60 * 24);
+
+  if (windowDays && daysDiff > windowDays) {
+    return 0;
+  }
+  const periods = daysDiff / (pulseDays || 45);
+  return credit * Math.pow(1 - decayRate, periods);
+};
+
+export const calculateBiscuitRating = (
+  contestEntries = [],
+  asOfDate,
+  windowDays = BISCUIT_WINDOW_DAYS,
+  priorRating = BISCUIT_PRIOR_RATING,
+  priorCredit = BISCUIT_PRIOR_CREDIT
+) => {
+  if (!contestEntries || contestEntries.length === 0) {
+    return priorRating;
+  }
+
+  const dAsOf = new Date(asOfDate);
+  let totalCredit = 0;
+  let totalLeftWeight = 0;
+  let weightedSquares = 0.0;
+  let totalContestWeight = 0.0;
+
+  for (const entry of contestEntries) {
+    const credit = Number(entry.credit) || 1;
+    totalCredit += credit;
+    const w = calculateBiscuitWeight(credit, entry.date, dAsOf, windowDays);
+    totalLeftWeight += w;
+    weightedSquares += w * Math.pow(entry.perf, 2);
+    totalContestWeight += w;
+  }
+
+  const priorWeight = priorCredit * (totalCredit > 0 ? totalLeftWeight / totalCredit : 1);
+  weightedSquares += priorWeight * Math.pow(priorRating, 2);
+  const totalWeight = totalContestWeight + priorWeight;
+
+  return totalWeight > 0 ? Math.sqrt(weightedSquares / totalWeight) : priorRating;
+};
+
+export const buildBiscuitStandings = (contestPayloads = [], teamGroups = [], options = {}) => {
+  const windowDays = options.windowDays !== undefined ? options.windowDays : BISCUIT_WINDOW_DAYS;
+  const priorRating = options.priorRating !== undefined ? options.priorRating : BISCUIT_PRIOR_RATING;
+  const priorCredit = options.priorCredit !== undefined ? options.priorCredit : BISCUIT_PRIOR_CREDIT;
+
+  const ratingState = new Map();
+
+  const ensureTeam = (group) => {
+    if (!group) return null;
+    let record = ratingState.get(group.id);
+    if (!record) {
+      record = {
+        id: group.id,
+        name: group.displayName,
+        rating: priorRating,
+        contests: 0,
+        contestsHistory: [],
+        _activeEntries: [],
+      };
+      ratingState.set(group.id, record);
+    }
+    return record;
+  };
+
+  teamGroups.forEach((group) => ensureTeam(group));
+
+  if (!contestPayloads.length) {
+    return Array.from(ratingState.values())
+      .map((record) => ({
+        id: record.id,
+        name: record.name,
+        rating: record.rating,
+        ratingDisplay: String(Math.round(record.rating)),
+        contests: 0,
+        contestsHistory: [],
+      }))
+      .sort((a, b) => b.rating - a.rating || a.name.localeCompare(b.name))
+      .map((record, index) => ({
+        ...record,
+        rank: index + 1,
+        globalRank: index + 1,
+      }));
+  }
+
+  // Sort contests chronologically by beginTime / createdAt
+  const sortedContests = [...contestPayloads].sort((a, b) => {
+    const da = new Date(a.beginTime || a.createdAt || 0).getTime();
+    const db = new Date(b.beginTime || b.createdAt || 0).getTime();
+    if (da !== db) return da - db;
+    return Number(a.contestId) - Number(b.contestId);
+  });
+
+  const latestContestDate = sortedContests.length > 0
+    ? new Date(
+        sortedContests[sortedContests.length - 1].beginTime ||
+        sortedContests[sortedContests.length - 1].createdAt ||
+        Date.now()
+      )
+    : new Date();
+
+  for (const contestData of sortedContests) {
+    if (!contestData?.ranklist) continue;
+
+    const maxSolved = Math.max(0, ...(contestData.ranklist || []).map((r) => r.solved || 0));
+    const contestDate = new Date(contestData.beginTime || contestData.createdAt || Date.now());
+    const totalParticipants = Array.isArray(contestData.ranklist) ? contestData.ranklist.length : 0;
+    const contestTitle = contestData.title || `Contest #${contestData.contestId}`;
+
+    const isExcludedForGroup = (group) => {
+      if (!group?.excludedContests?.length) return false;
+      return group.excludedContests.some((id) => Number(id) === Number(contestData.contestId));
+    };
+
+    for (const group of teamGroups) {
+      const match = findBestGroupMatch(group, contestData.ranklist, contestData.participants);
+      if (match?.entry) {
+        const record = ensureTeam(group);
+        if (!record) continue;
+
+        const excluded = isExcludedForGroup(group);
+        const solved = match.entry.solved ?? 0;
+        const penalty = match.entry.penalty ?? 0;
+        const rank = match.entry.rank;
+        const perf = excluded ? 0 : calculateBiscuitPerformance(rank, solved, maxSolved);
+
+        // Previous rating before this contest
+        const prevRating = record._activeEntries.length > 0
+          ? record.contestsHistory[record.contestsHistory.length - 1].ratingAfter
+          : priorRating;
+
+        let ratingAfter = prevRating;
+        let delta = 0;
+
+        if (!excluded) {
+          const entryObj = {
+            contestId: contestData.contestId,
+            credit: contestData.credit || 1,
+            date: contestDate,
+            perf,
+          };
+          record._activeEntries.push(entryObj);
+          ratingAfter = Math.round(
+            calculateBiscuitRating(record._activeEntries, contestDate, windowDays, priorRating, priorCredit)
+          );
+          delta = ratingAfter - prevRating;
+          record.contests += 1;
+        }
+
+        record.contestsHistory.push({
+          contestId: contestData.contestId,
+          contestTitle,
+          solved,
+          penalty,
+          rank,
+          totalParticipants,
+          rankDisplay: `${rank}/${totalParticipants}`,
+          performance: Math.round(perf),
+          ratingAfter,
+          delta,
+          excluded,
+          date: contestDate,
+        });
+      }
+    }
+  }
+
+  return Array.from(ratingState.values())
+    .map((record) => {
+      let finalRating = priorRating;
+      if (record._activeEntries.length > 0) {
+        finalRating = Math.round(
+          calculateBiscuitRating(record._activeEntries, latestContestDate, windowDays, priorRating, priorCredit)
+        );
+      }
+      return {
+        id: record.id,
+        name: record.name,
+        rating: finalRating,
+        ratingDisplay: String(finalRating),
+        contests: record.contests,
+        // Reverse chronological order for modal view (newest contest first)
+        contestsHistory: [...(record.contestsHistory || [])].sort((a, b) => {
+          const da = new Date(a.date || 0).getTime();
+          const db = new Date(b.date || 0).getTime();
+          if (da !== db) return db - da;
+          return Number(b.contestId) - Number(a.contestId);
+        }),
+      };
+    })
+    .sort((a, b) => {
+      if (b.rating !== a.rating) return b.rating - a.rating;
+      return a.name.localeCompare(b.name);
+    })
+    .map((record, index) => ({
+      ...record,
+      rank: index + 1,
+      globalRank: index + 1,
+    }));
+};
+

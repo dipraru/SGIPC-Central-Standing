@@ -60,6 +60,3 @@ jobs:
             sleep 5
             iteration=$((iteration + 1))
           done
-
-      - name: Keep workflow active (prevent 60-day inactivity suspension)
-        uses: gautamkrishnar/keepalive-workflow@v2
